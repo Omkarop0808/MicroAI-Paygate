@@ -10,5 +10,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o gateway main.go
 FROM alpine:latest
 WORKDIR /root/
 COPY --from=builder /app/gateway .
+RUN apk add --no-cache ca-certificates && adduser -D -u 1000 appuser
+USER appuser
 EXPOSE 3000
 CMD ["./gateway"]

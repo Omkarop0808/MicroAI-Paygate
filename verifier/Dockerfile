@@ -9,5 +9,7 @@ RUN cargo build --release
 FROM alpine:latest
 WORKDIR /root/
 COPY --from=builder /app/target/release/verifier .
+RUN apk add --no-cache ca-certificates && adduser -D -u 1000 appuser
+USER appuser
 EXPOSE 3002
 CMD ["./verifier"]

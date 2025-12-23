@@ -1,16 +1,19 @@
-FROM oven/bun:1 AS base
+FROM oven/bun:1 AS deps
 WORKDIR /app
-
-# Install dependencies
 COPY package.json bun.lock* ./
 RUN bun install --frozen-lockfile
 
-# Copy source
+FROM deps AS build
+WORKDIR /app
 COPY . .
-
-# Build
 RUN bun run build
 
-# Start
+FROM oven/bun:1 AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/package.json /app/bun.lock* ./
+COPY --from=build /app/.next /app/.next
+COPY --from=build /app/public /app/public
 EXPOSE 3001
 CMD ["bun", "start"]
