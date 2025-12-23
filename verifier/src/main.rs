@@ -4,8 +4,8 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use ethers::types::{Signature};
 use ethers::types::transaction::eip712::TypedData;
+use ethers::types::Signature;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -40,7 +40,8 @@ struct PaymentContext {
     token: String,
     amount: String,
     nonce: String,
-    chainId: u64,
+    #[serde(rename = "chainId")]
+    chain_id: u64,
 }
 
 #[derive(Serialize)]
@@ -50,8 +51,13 @@ struct VerifyResponse {
     error: Option<String>,
 }
 
-async fn verify_signature(Json(payload): Json<VerifyRequest>) -> (StatusCode, Json<VerifyResponse>) {
-    println!("Received verification request for nonce: {}", payload.context.nonce);
+async fn verify_signature(
+    Json(payload): Json<VerifyRequest>,
+) -> (StatusCode, Json<VerifyResponse>) {
+    println!(
+        "Received verification request for nonce: {}",
+        payload.context.nonce
+    );
     // Construct the EIP-712 Typed Data
     // Note: In a real production app, we should use the proper EIP-712 struct definitions with ethers-rs macros.
     // For this MVP, we will manually reconstruct the domain and types to match the frontend.
@@ -59,7 +65,7 @@ async fn verify_signature(Json(payload): Json<VerifyRequest>) -> (StatusCode, Js
     let domain = serde_json::json!({
         "name": "MicroAI Paygate",
         "version": "1",
-        "chainId": payload.context.chainId,
+        "chainId": payload.context.chain_id,
         "verifyingContract": "0x0000000000000000000000000000000000000000"
     });
 
@@ -91,40 +97,56 @@ async fn verify_signature(Json(payload): Json<VerifyRequest>) -> (StatusCode, Js
     // Parse TypedData
     let typed_data: TypedData = match serde_json::from_value(typed_data) {
         Ok(td) => td,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(VerifyResponse {
-            is_valid: false,
-            recovered_address: None,
-            error: Some(format!("Failed to build typed data: {}", e)),
-        })),
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(VerifyResponse {
+                    is_valid: false,
+                    recovered_address: None,
+                    error: Some(format!("Failed to build typed data: {}", e)),
+                }),
+            )
+        }
     };
 
     // Parse Signature
     let signature = match Signature::from_str(&payload.signature) {
         Ok(s) => s,
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(VerifyResponse {
-            is_valid: false,
-            recovered_address: None,
-            error: Some(format!("Invalid signature format: {}", e)),
-        })),
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(VerifyResponse {
+                    is_valid: false,
+                    recovered_address: None,
+                    error: Some(format!("Invalid signature format: {}", e)),
+                }),
+            )
+        }
     };
 
     // Verify
     match signature.recover_typed_data(&typed_data) {
         Ok(address) => {
             println!("Signature valid! Recovered: {:?}", address);
-            (StatusCode::OK, Json(VerifyResponse {
-                is_valid: true,
-                recovered_address: Some(format!("{:?}", address)),
-                error: None,
-            }))
-        },
+            (
+                StatusCode::OK,
+                Json(VerifyResponse {
+                    is_valid: true,
+                    recovered_address: Some(format!("{:?}", address)),
+                    error: None,
+                }),
+            )
+        }
         Err(e) => {
             println!("Verification failed: {}", e);
-            (StatusCode::OK, Json(VerifyResponse {
-                is_valid: false,
-                recovered_address: None,
-                error: Some(format!("Verification failed: {}", e)),
-            }))
+            (
+                StatusCode::OK,
+                Json(VerifyResponse {
+                    is_valid: false,
+                    recovered_address: None,
+                    error: Some(format!("Verification failed: {}", e)),
+                }),
+            )
         }
     }
 }
@@ -137,9 +159,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_signature_valid() {
-        let wallet: LocalWallet = "380eb0f3d505f087e438eca80bc4df9a7faa24f868e69fc0440261a0fc0567dc"
-            .parse()
-            .unwrap();
+        let wallet: LocalWallet =
+            "380eb0f3d505f087e438eca80bc4df9a7faa24f868e69fc0440261a0fc0567dc"
+                .parse()
+                .unwrap();
         let wallet = wallet.with_chain_id(1u64);
 
         // Construct TypedData via JSON (easiest way without derive macros)
@@ -184,7 +207,7 @@ mod tests {
                 token: "USDC".to_string(),
                 amount: "100".to_string(),
                 nonce: "unique-nonce-123".to_string(),
-                chainId: 1,
+                chain_id: 1,
             },
             signature: signature_str,
         };
@@ -204,7 +227,7 @@ mod tests {
                 token: "USDC".to_string(),
                 amount: "100".to_string(),
                 nonce: "nonce".to_string(),
-                chainId: 1,
+                chain_id: 1,
             },
             signature: "0x1234567890".to_string(),
         };

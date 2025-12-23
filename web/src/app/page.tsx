@@ -2,12 +2,21 @@
 
 import { useState } from "react";
 import { ethers } from "ethers";
+import type { Eip1193Provider } from "ethers";
 
 declare global {
   interface Window {
-    ethereum?: any;
+    ethereum?: Eip1193Provider;
   }
 }
+
+type PaymentContext = {
+  recipient: string;
+  token: string;
+  amount: string;
+  nonce: string;
+  chainId: number;
+};
 
 export default function Home() {
   const [input, setInput] = useState("");
@@ -31,7 +40,7 @@ export default function Home() {
 
       if (response.status === 402) {
         setStatus("Payment Required (402). Requesting signature...");
-        const data = await response.json();
+        const data: { paymentContext: PaymentContext } = await response.json();
         const { paymentContext } = data;
 
         // 2. Check for Wallet
@@ -53,9 +62,9 @@ export default function Home() {
             // Re-get signer after switch
             const newProvider = new ethers.BrowserProvider(window.ethereum);
             await newProvider.getSigner(); 
-          } catch (switchError: any) {
+          } catch (switchError: unknown) {
             // This error code indicates that the chain has not been added to MetaMask.
-            if (switchError.code === 4902) {
+            if ((switchError as { code?: number }).code === 4902) {
               await window.ethereum.request({
                 method: "wallet_addEthereumChain",
                 params: [
@@ -113,16 +122,17 @@ export default function Home() {
       }
 
       if (response.ok) {
-        const result = await response.json();
-        setOutput(result.result);
+        const result: { result?: string } = await response.json();
+        setOutput(result.result ?? "");
         setStatus("Success!");
       } else {
         const errorText = await response.text();
         setStatus(`Error: ${response.status} - ${errorText}`);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error);
-      setStatus(`Error: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus(`Error: ${message}`);
     } finally {
       setLoading(false);
     }

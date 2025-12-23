@@ -22,6 +22,12 @@ Thanks for considering a contribution! This project is open to issues, bug fixes
 - No unrelated formatting-only diffs.
 - Minimal surface area: focused, reviewable changes.
 
+## Local Validation (mirrors CI)
+- Gateway: `go test -v ./...` and `go vet ./...`
+- Verifier: `cargo fmt -- --check`, `cargo clippy -- -D warnings`, `cargo test`
+- Web: `cd web && bun run lint && bun run build`
+- E2E (optional): `bun run test:e2e` (requires `OPENROUTER_API_KEY`)
+
 ## Coding Standards
 - Keep changes minimal and focused; avoid large, unrelated refactors.
 - Add tests for new behavior; update existing tests if logic changes.
