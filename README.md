@@ -4,6 +4,14 @@
     <p>A high-performance, crypto-monetized AI microservice architecture implementing the x402 Protocol.</p>
 </div>
 
+## Documentation
+
+- [Getting Started](README.md#getting-started-local)
+- [Testing](README.md#testing)
+- [Contributing Guide](CONTRIBUTING.md)
+- [Project Rules](RULES.md)
+- [License](LICENSE)
+
 ## Overview
 
 MicroAI Paygate demonstrates a decentralized payment layer for AI services. Instead of traditional subscriptions, it utilizes the HTTP 402 (Payment Required) status code to enforce per-request crypto micropayments. The system has been re-architected from a monolithic Node.js application into a distributed microservices stack to ensure maximum throughput, type safety, and cryptographic security.
@@ -56,6 +64,48 @@ The Verifier is a specialized computation unit designed for one task: Elliptic C
 
 ## Installation & Deployment
 
+### Getting Started (Local)
+
+**Prerequisites**
+- Bun
+- Go 1.21+
+- Rust/Cargo (latest stable)
+- Node.js (for Next.js tooling)
+
+**Clone & Install**
+```bash
+git clone https://github.com/AnkanMisra/MicroAI-Paygate.git
+cd MicroAI-Paygate
+bun install
+go mod tidy -C gateway
+cargo build -q -C verifier
+```
+
+**Configure Environment**
+Copy `.env.example` to `.env` and fill values (see next section).
+
+**Run the Stack**
+```bash
+bun run stack
+```
+
+**Run Tests**
+- E2E: `bun run test:e2e`
+- Gateway: `cd gateway && go test -v`
+- Verifier: `cd verifier && cargo test`
+
+### Environment
+
+Create a `.env` (or use `.env.example`) with at least:
+
+- `OPENROUTER_API_KEY` — API key for OpenRouter
+- `OPENROUTER_MODEL` — model name (default: `z-ai/glm-4.5-air:free`)
+- `BASE_RPC_URL` — RPC for Base (if you extend on-chain checks)
+- `RECIPIENT_ADDRESS` — recipient for payments (gateway)
+- `CHAIN_ID` — chain used in signatures (gateway + verifier)
+
+Ensure ports `3000` (gateway), `3001` (web), and `3002` (verifier) are free.
+
 ### Docker Deployment (Production)
 
 For production environments, we provide a containerized setup using Docker Compose. This orchestrates all three services in an isolated network.
@@ -88,7 +138,6 @@ For rapid development, use the unified stack command which runs services on the 
     ```
 
 ## Testing
-
 We maintain a comprehensive test suite covering all layers of the stack, from unit tests for individual microservices to full end-to-end (E2E) integration tests.
 
 ### End-to-End (E2E) Tests
@@ -104,7 +153,8 @@ The E2E tests simulate a real client interaction:
 ```bash
 bun run test:e2e
 ```
-*This command automatically builds and starts the Go Gateway and Rust Verifier in the background before running the tests.*
+Prerequisites: Bun, Go, and Rust toolchains installed. This command uses `run_e2e.sh` to build and start the Go Gateway and Rust Verifier before executing tests.
+If `OPENROUTER_API_KEY` is missing, the signature path will pass but the final AI call may return 500 after verification.
 
 ### Unit Tests
 
@@ -121,6 +171,26 @@ Tests the cryptographic verification logic and EIP-712 implementation.
 cd verifier
 cargo test
 ```
+
+## Troubleshooting
+
+- Port already in use: ensure 3000/3001/3002 are free or export alternative ports in env and update client config.
+- Missing OpenRouter key: E2E tests may pass signature validation but fail on AI response with 500.
+- Network errors inside Docker: use service names (`gateway:3000`, `verifier:3002`) instead of localhost.
+
+## References
+
+- HTTP 402 Payment Required (MDN): https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/402
+- RFC 7231 Section 6.5.2 (Payment Required): https://www.rfc-editor.org/rfc/rfc7231#section-6.5.2
+- EIP-712 Typed Structured Data: https://eips.ethereum.org/EIPS/eip-712
+
+## Contributing
+
+We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and open issues before submitting PRs.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
 
 ## API Reference
 
