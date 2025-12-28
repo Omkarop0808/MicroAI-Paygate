@@ -52,6 +52,7 @@ func main() {
 		AllowCredentials: true,
 	}))
 
+	r.GET("/healthz", handleHealth)
 	r.POST("/api/ai/summarize", handleSummarize)
 
 	port := os.Getenv("PORT")
@@ -139,7 +140,7 @@ func getRecipientAddress() string {
 	// Hardcoded for MVP or read from env
 	// This should match the one derived from private key in TS version
 	// For now, I'll use a placeholder or the one from the logs
-	return "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219" 
+	return "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219"
 }
 
 func callOpenRouter(text string) (string, error) {
@@ -150,7 +151,7 @@ func callOpenRouter(text string) (string, error) {
 	}
 
 	prompt := fmt.Sprintf("Summarize this text in 2 sentences: %s", text)
-	
+
 	reqBody, _ := json.Marshal(map[string]interface{}{
 		"model": model,
 		"messages": []map[string]string{
@@ -179,4 +180,8 @@ func callOpenRouter(text string) (string, error) {
 	}
 
 	return "", fmt.Errorf("invalid response from AI provider")
+}
+
+func handleHealth(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "gateway"})
 }

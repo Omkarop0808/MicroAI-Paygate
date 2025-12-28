@@ -50,6 +50,104 @@ The migration to a polyglot microservices architecture resulted in significant p
 
 ## Architecture & Backend Internals
 
+### System Architecture
+
+```mermaid
+flowchart TB
+    subgraph Clients[Client Layer]
+        WEB[Web Frontend - Next.js]
+        AGENT[Agent Bot - TypeScript]
+        CLI[CLI / cURL]
+    end
+
+    subgraph Gateway[API Gateway Layer]
+        GW[Gateway - Go/Gin :3000]
+    end
+
+    subgraph Verification[Verification Layer]
+        VER[Verifier - Rust/Axum :3002]
+    end
+
+    subgraph External[External Services]
+        AI[OpenRouter API]
+        CHAIN[Base L2 - USDC]
+    end
+
+    WEB --> GW
+    AGENT --> GW
+    CLI --> GW
+    
+    GW <--> VER
+    GW --> AI
+    
+    WEB -.-> CHAIN
+    AGENT -.-> CHAIN
+```
+
+### Service Communication
+
+| Service | Technology | Port | Responsibility |
+|---------|------------|------|----------------|
+| **Gateway** | Go + Gin | `3000` | Traffic routing, x402 enforcement, AI proxying |
+| **Verifier** | Rust + Axum | `3002` | EIP-712 signature recovery, ECDSA validation |
+| **Web** | Next.js | `3001` | React frontend with MetaMask integration |
+
+---
+
+### x402 Protocol Flow
+
+The x402 protocol enables trustless, per-request payments using cryptographic signatures:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    
+    participant C as Client
+    participant G as Gateway
+    participant V as Verifier
+    participant AI as OpenRouter
+
+    Note over C,G: Phase 1 - Payment Challenge
+    C->>G: POST /api/ai/summarize
+    G-->>C: 402 Payment Required + paymentContext
+
+    Note over C: Phase 2 - User Signs Payment
+    C->>C: Sign EIP-712 TypedData with Wallet
+
+    Note over C,AI: Phase 3 - Verified Request
+    C->>G: POST with X-402-Signature + X-402-Nonce
+    G->>V: Verify signature
+    V->>V: Recover signer via ECDSA
+    V-->>G: is_valid + recovered_address
+    G->>AI: Forward to AI provider
+    AI-->>G: AI response
+    G-->>C: 200 OK + result
+```
+
+### Payment Context Structure
+
+When a `402 Payment Required` response is returned, it includes the payment context:
+
+```json
+{
+  "error": "Payment Required",
+  "message": "Please sign the payment context",
+  "paymentContext": {
+    "recipient": "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219",
+    "token": "USDC",
+    "amount": "0.001",
+    "nonce": "9c311e31-eb30-420a-bced-c0d68bc89cea",
+    "chainId": 8453
+  }
+}
+```
+
+The client signs this data using EIP-712 and resends with headers:
+- `X-402-Signature`: The cryptographic signature
+- `X-402-Nonce`: The nonce from the payment context
+
+---
+
 ### The Gateway (Go)
 The Gateway service utilizes Go's lightweight goroutines to handle high-throughput HTTP traffic. Unlike the Node.js event loop which can be blocked by CPU-intensive tasks, the Go scheduler efficiently distributes requests across available CPU cores.
 - **Framework**: Gin (High-performance HTTP web framework)

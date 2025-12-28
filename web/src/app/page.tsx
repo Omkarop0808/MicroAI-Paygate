@@ -147,6 +147,14 @@ export default function Home() {
         <p className="text-gray-400">
           Pay-per-request AI Summarization (0.001 USDC)
         </p>
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          <span className="rounded-full bg-gray-800 border border-gray-700 px-3 py-1 text-gray-200">
+            CI Health: Ready
+          </span>
+          <span className="rounded-full bg-blue-900/40 border border-blue-700 px-3 py-1 text-blue-100">
+            Go · Rust · Web checks run on every PR
+          </span>
+        </div>
 
         <div className="w-full max-w-2xl flex flex-col gap-4">
           <textarea
