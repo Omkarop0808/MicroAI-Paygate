@@ -4,7 +4,7 @@ Thanks for considering a contribution! This project is open to issues, bug fixes
 
 ## Getting Started
 - Fork the repo and create a feature branch: `git checkout -b feature/my-change`
-- Install prerequisites: Bun, Go 1.21+, Rust/Cargo, and Node (for Next.js).
+- Install prerequisites: Bun, Go 1.24+, Rust/Cargo, and Node 20+ (for Next.js 16.x).
 - Copy `.env.example` to `.env` and fill in required keys (see README).
 - Run `bun install`, `go mod tidy -C gateway`, and `cargo build -q -C verifier`.
 

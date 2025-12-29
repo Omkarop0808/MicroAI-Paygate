@@ -166,9 +166,9 @@ The Verifier is a specialized computation unit designed for one task: Elliptic C
 
 **Prerequisites**
 - Bun
-- Go 1.21+
+- Go 1.24+
 - Rust/Cargo (latest stable)
-- Node.js (for Next.js tooling)
+- Node.js 20+ (for Next.js 16.x tooling)
 
 **Clone & Install**
 ```bash
@@ -198,9 +198,14 @@ Create a `.env` (or use `.env.example`) with at least:
 
 - `OPENROUTER_API_KEY` — API key for OpenRouter
 - `OPENROUTER_MODEL` — model name (default: `z-ai/glm-4.5-air:free`)
-- `BASE_RPC_URL` — RPC for Base (if you extend on-chain checks)
-- `RECIPIENT_ADDRESS` — recipient for payments (gateway)
-- `CHAIN_ID` — chain used in signatures (gateway + verifier)
+- `SERVER_WALLET_PRIVATE_KEY` — private key for the server wallet (recipient of payments)
+- `RECIPIENT_ADDRESS` — wallet address for receiving payments
+- `CHAIN_ID` — chain used in signatures (default: `8453` for Base)
+
+**Optional Configuration:**
+- `USDC_TOKEN_ADDRESS` — USDC contract address (default: Base USDC)
+- `PAYMENT_AMOUNT` — cost per request in USDC (default: `0.001`)
+- `VERIFIER_URL` — URL of verifier service (default: `http://127.0.0.1:3002`)
 
 Ensure ports `3000` (gateway), `3001` (web), and `3002` (verifier) are free.
 
@@ -208,17 +213,23 @@ Ensure ports `3000` (gateway), `3001` (web), and `3002` (verifier) are free.
 
 For production environments, we provide a containerized setup using Docker Compose. This orchestrates all three services in an isolated network.
 
-1.  **Build and Run**
+1.  **Configure Environment**
+    ```bash
+    cp .env.example .env
+    # Edit .env with your API keys and wallet configuration
+    ```
+
+2.  **Build and Run**
     ```bash
     docker-compose up --build -d
     ```
 
-2.  **Verify Status**
+3.  **Verify Status**
     ```bash
     docker-compose ps
     ```
 
-3.  **Logs**
+4.  **Logs**
     ```bash
     docker-compose logs -f
     ```
@@ -228,7 +239,7 @@ For production environments, we provide a containerized setup using Docker Compo
 For rapid development, use the unified stack command which runs services on the host machine.
 
 1.  **Install Prerequisites**
-    - Bun, Go 1.21+, Rust/Cargo
+    - Bun, Go 1.24+, Rust/Cargo
 
 2.  **Run Stack**
     ```bash
@@ -284,7 +295,7 @@ cargo test
 
 ## Contributing
 
-We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and open issues before submitting PRs.
+We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and check the [GitHub Issues](https://github.com/AnkanMisra/MicroAI-Paygate/issues) for open tasks.
 
 ## License
 

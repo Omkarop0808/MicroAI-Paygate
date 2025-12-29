@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 )
 
@@ -94,7 +95,11 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	verifyBody, _ := json.Marshal(verifyReq)
-	resp, err := http.Post("http://127.0.0.1:3002/verify", "application/json", bytes.NewBuffer(verifyBody))
+	verifierURL := os.Getenv("VERIFIER_URL")
+	if verifierURL == "" {
+		verifierURL = "http://127.0.0.1:3002"
+	}
+	resp, err := http.Post(verifierURL+"/verify", "application/json", bytes.NewBuffer(verifyBody))
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Verification service unavailable"})
 		return
@@ -126,21 +131,22 @@ func handleSummarize(c *gin.Context) {
 }
 
 func createPaymentContext() PaymentContext {
-	// In a real app, generate a random nonce and store it
 	return PaymentContext{
 		Recipient: getRecipientAddress(),
 		Token:     "USDC",
 		Amount:    "0.001",
-		Nonce:     "9c311e31-eb30-420a-bced-c0d68bc89cea", // Static for MVP
+		Nonce:     uuid.New().String(),
 		ChainID:   8453,
 	}
 }
 
 func getRecipientAddress() string {
-	// Hardcoded for MVP or read from env
-	// This should match the one derived from private key in TS version
-	// For now, I'll use a placeholder or the one from the logs
-	return "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219"
+	addr := os.Getenv("RECIPIENT_ADDRESS")
+	if addr == "" {
+		log.Println("Warning: RECIPIENT_ADDRESS not set, using default")
+		return "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219"
+	}
+	return addr
 }
 
 func callOpenRouter(text string) (string, error) {

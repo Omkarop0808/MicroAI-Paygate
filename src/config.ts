@@ -4,18 +4,17 @@ export const CONFIG = {
   PORT: process.env.PORT || 3000,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || "",
   OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || "z-ai/glm-4.5-air:free",
-  
+
   // Server wallet private key for signing/facilitating (if needed) or just identifying the recipient
   SERVER_PRIVATE_KEY: process.env.SERVER_WALLET_PRIVATE_KEY || "",
   CHAIN_ID: parseInt(process.env.CHAIN_ID || "8453"), // Base
-  
+
   // Payment details
   PAYMENT: {
     TOKEN_SYMBOL: "USDC",
-    // For demo purposes, we can use a dummy address or a real one if provided
-    // In a real app, this would be the contract address of USDC on the specific chain
-    TOKEN_ADDRESS: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Base USDC
-    DEFAULT_PRICE: "0.001", // 0.001 USDC
+    // USDC contract address - defaults to Base USDC if not specified
+    TOKEN_ADDRESS: process.env.USDC_TOKEN_ADDRESS || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", //dummy address btw :)
+    DEFAULT_PRICE: process.env.PAYMENT_AMOUNT || "0.001", //dummy
     RECIPIENT_ADDRESS: "", // Will be derived from private key
   }
 };
