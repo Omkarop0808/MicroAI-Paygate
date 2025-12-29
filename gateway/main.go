@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -107,7 +108,10 @@ func handleSummarize(c *gin.Context) {
 	defer resp.Body.Close()
 
 	var verifyResp VerifyResponse
-	json.NewDecoder(resp.Body).Decode(&verifyResp)
+	if err := json.NewDecoder(resp.Body).Decode(&verifyResp); err != nil {
+		c.JSON(500, gin.H{"error": "Failed to decode verification response"})
+		return
+	}
 
 	if !verifyResp.IsValid {
 		c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
@@ -134,9 +138,9 @@ func createPaymentContext() PaymentContext {
 	return PaymentContext{
 		Recipient: getRecipientAddress(),
 		Token:     "USDC",
-		Amount:    "0.001",
+		Amount:    getPaymentAmount(),
 		Nonce:     uuid.New().String(),
-		ChainID:   8453,
+		ChainID:   getChainID(),
 	}
 }
 
@@ -147,6 +151,27 @@ func getRecipientAddress() string {
 		return "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219"
 	}
 	return addr
+}
+
+func getPaymentAmount() string {
+	amount := os.Getenv("PAYMENT_AMOUNT")
+	if amount == "" {
+		return "0.001"
+	}
+	return amount
+}
+
+func getChainID() int {
+	chainIDStr := os.Getenv("CHAIN_ID")
+	if chainIDStr == "" {
+		return 8453
+	}
+	chainID, err := strconv.Atoi(chainIDStr)
+	if err != nil {
+		log.Printf("Warning: Invalid CHAIN_ID '%s', using default 8453", chainIDStr)
+		return 8453
+	}
+	return chainID
 }
 
 func callOpenRouter(text string) (string, error) {
@@ -177,15 +202,31 @@ func callOpenRouter(text string) (string, error) {
 	defer resp.Body.Close()
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
-
-	if choices, ok := result["choices"].([]interface{}); ok && len(choices) > 0 {
-		choice := choices[0].(map[string]interface{})
-		message := choice["message"].(map[string]interface{})
-		return message["content"].(string), nil
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode AI response: %w", err)
 	}
 
-	return "", fmt.Errorf("invalid response from AI provider")
+	choices, ok := result["choices"].([]interface{})
+	if !ok || len(choices) == 0 {
+		return "", fmt.Errorf("invalid response from AI provider: no choices")
+	}
+
+	choice, ok := choices[0].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid response from AI provider: malformed choice")
+	}
+
+	message, ok := choice["message"].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid response from AI provider: malformed message")
+	}
+
+	content, ok := message["content"].(string)
+	if !ok {
+		return "", fmt.Errorf("invalid response from AI provider: missing content")
+	}
+
+	return content, nil
 }
 
 func handleHealth(c *gin.Context) {
