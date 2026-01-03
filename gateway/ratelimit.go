@@ -38,6 +38,14 @@ type TokenBucket struct {
 // burst: maximum burst size (max tokens)
 // cleanupTTL: duration after which inactive buckets are removed
 func NewTokenBucket(rpm int, burst int, cleanupTTL time.Duration) *TokenBucket {
+	// Validate parameters to prevent division by zero and invalid configurations
+	if rpm <= 0 {
+		rpm = 1 // Default to minimum 1 request per minute
+	}
+	if burst <= 0 {
+		burst = 1 // Default to minimum 1 token burst
+	}
+	
 	tb := &TokenBucket{
 		rate:       float64(rpm) / 60.0, // Convert RPM to tokens per second
 		burst:      burst,
@@ -52,16 +60,14 @@ func NewTokenBucket(rpm int, burst int, cleanupTTL time.Duration) *TokenBucket {
 
 // getBucket retrieves or creates a bucket for the given key
 func (tb *TokenBucket) getBucket(key string) *bucket {
-	val, ok := tb.buckets.Load(key)
-	if !ok {
-		// Create new bucket with full tokens
-		b := &bucket{
-			tokens:    float64(tb.burst),
-			lastCheck: time.Now(),
-		}
-		tb.buckets.Store(key, b)
-		return b
+	// Use LoadOrStore to atomically get existing or create new bucket
+	// This prevents race conditions where two goroutines might create separate buckets
+	newBucket := &bucket{
+		tokens:    float64(tb.burst),
+		lastCheck: time.Now(),
 	}
+	
+	val, _ := tb.buckets.LoadOrStore(key, newBucket)
 	return val.(*bucket)
 }
 

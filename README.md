@@ -39,6 +39,7 @@ MicroAI Paygate implements token bucket rate limiting to prevent abuse, ensure f
 - **Easy Toggle**: Can be completely disabled with `RATE_LIMIT_ENABLED=false`
 
 ### Default Limits
+
 | Tier | Requests/Minute | Burst | Identification |
 |------|----------------|-------|----------------|
 | **Anonymous** | 10 | 5 | IP address |

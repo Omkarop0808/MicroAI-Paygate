@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -343,11 +345,11 @@ func getRateLimitKey(c *gin.Context) string {
 	// Priority: Use nonce from header if present (identifies wallet)
 	nonce := c.GetHeader("X-402-Nonce")
 	if nonce != "" {
-		// Use first 8 chars of nonce as key
-		if len(nonce) > 8 {
-			return "nonce:" + nonce[:8]
-		}
-		return "nonce:" + nonce
+		// Hash the full nonce to prevent collisions while keeping key manageable
+		// Using SHA256 ensures uniqueness across full UUID space
+		hash := sha256.Sum256([]byte(nonce))
+		// Use first 16 hex chars (64 bits) of hash for compact key
+		return "nonce:" + hex.EncodeToString(hash[:])[:16]
 	}
 
 	// Fallback to IP address

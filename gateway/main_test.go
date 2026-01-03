@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -50,7 +51,11 @@ func TestRateLimitMiddleware_AnonymousUser(t *testing.T) {
 	os.Setenv("RATE_LIMIT_ENABLED", "true")
 	os.Setenv("RATE_LIMIT_ANONYMOUS_RPM", "60")
 	os.Setenv("RATE_LIMIT_ANONYMOUS_BURST", "3")
-	defer os.Unsetenv("RATE_LIMIT_ENABLED")
+	defer func() {
+		os.Unsetenv("RATE_LIMIT_ENABLED")
+		os.Unsetenv("RATE_LIMIT_ANONYMOUS_RPM")
+		os.Unsetenv("RATE_LIMIT_ANONYMOUS_BURST")
+	}()
 
 	gin.SetMode(gin.TestMode)
 	r := gin.Default()
@@ -113,7 +118,11 @@ func TestRateLimitMiddleware_StandardUser(t *testing.T) {
 	os.Setenv("RATE_LIMIT_ENABLED", "true")
 	os.Setenv("RATE_LIMIT_STANDARD_RPM", "120")
 	os.Setenv("RATE_LIMIT_STANDARD_BURST", "5")
-	defer os.Unsetenv("RATE_LIMIT_ENABLED")
+	defer func() {
+		os.Unsetenv("RATE_LIMIT_ENABLED")
+		os.Unsetenv("RATE_LIMIT_STANDARD_RPM")
+		os.Unsetenv("RATE_LIMIT_STANDARD_BURST")
+	}()
 
 	gin.SetMode(gin.TestMode)
 	r := gin.Default()
@@ -149,7 +158,11 @@ func TestRateLimitMiddleware_DifferentKeys(t *testing.T) {
 	os.Setenv("RATE_LIMIT_ENABLED", "true")
 	os.Setenv("RATE_LIMIT_STANDARD_RPM", "60")
 	os.Setenv("RATE_LIMIT_STANDARD_BURST", "2")
-	defer os.Unsetenv("RATE_LIMIT_ENABLED")
+	defer func() {
+		os.Unsetenv("RATE_LIMIT_ENABLED")
+		os.Unsetenv("RATE_LIMIT_STANDARD_RPM")
+		os.Unsetenv("RATE_LIMIT_STANDARD_BURST")
+	}()
 
 	gin.SetMode(gin.TestMode)
 	r := gin.Default()
@@ -242,19 +255,17 @@ func TestGetRateLimitKey(t *testing.T) {
 			r.GET("/test", func(c *gin.Context) {
 				key := getRateLimitKey(c)
 				if tt.nonce != "" {
-					if len(tt.nonce) > 8 {
-						expected := "nonce:" + tt.nonce[:8]
-						if key != expected {
-							t.Errorf("Expected key '%s', got '%s'", expected, key)
-						}
-					} else {
-						expected := "nonce:" + tt.nonce
-						if key != expected {
-							t.Errorf("Expected key '%s', got '%s'", expected, key)
-						}
+					// Key should start with "nonce:" followed by hash (16 hex chars)
+					if !strings.HasPrefix(key, "nonce:") {
+						t.Errorf("Expected key to start with 'nonce:', got '%s'", key)
+					}
+					// Verify hash portion is 16 hex characters
+					hashPart := strings.TrimPrefix(key, "nonce:")
+					if len(hashPart) != 16 {
+						t.Errorf("Expected hash to be 16 chars, got %d: '%s'", len(hashPart), hashPart)
 					}
 				} else {
-					if key[:3] != "ip:" {
+					if !strings.HasPrefix(key, "ip:") {
 						t.Errorf("Expected IP-based key, got '%s'", key)
 					}
 				}
