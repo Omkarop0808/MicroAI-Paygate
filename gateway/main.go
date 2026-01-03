@@ -88,6 +88,9 @@ func main() {
 	if os.Getenv("VERIFIER_URL") == "" {
 		fmt.Println("[WARN] VERIFIER_URL not set, using default verifier")
 	}
+    if os.Getenv("CHAIN_ID") == "" {
+		fmt.Println("[WARN] CHAIN_ID not set, using default: 8453(base)")
+	}
 
 	r := gin.Default()
 
