@@ -26,67 +26,6 @@ MicroAI Paygate demonstrates a decentralized payment layer for AI services. Inst
 - **Memory Safety**: Rust-based verification service for secure cryptographic operations.
 - **Token Bucket Rate Limiting**: Configurable per-IP and per-wallet rate limits with tiered access control.
 
-## Rate Limiting
-
-MicroAI Paygate implements token bucket rate limiting to prevent abuse, ensure fair usage, and protect the OpenRouter API quota.
-
-### Features
-- **Token Bucket Algorithm**: Smooth rate limiting with burst support
-- **Tiered Limits**: Different limits for anonymous, authenticated, and verified users
-- **Per-IP and Per-Wallet**: Limits based on client IP or wallet address (nonce)
-- **Standard Headers**: Industry-standard `X-RateLimit-*` and `Retry-After` headers
-- **Configurable**: All limits adjustable via environment variables
-- **Easy Toggle**: Can be completely disabled with `RATE_LIMIT_ENABLED=false`
-
-### Default Limits
-
-| Tier | Requests/Minute | Burst | Identification |
-|------|----------------|-------|----------------|
-| **Anonymous** | 10 | 5 | IP address |
-| **Standard** | 60 | 20 | Signed requests (wallet nonce) |
-| **Verified** | 120 | 50 | Premium users (future) |
-
-### Configuration
-Add to your `.env` file:
-```bash
-# Rate Limiting
-RATE_LIMIT_ENABLED=true
-
-# Anonymous users (IP-based, no signature)
-RATE_LIMIT_ANONYMOUS_RPM=10
-RATE_LIMIT_ANONYMOUS_BURST=5
-
-# Standard users (signed requests)
-RATE_LIMIT_STANDARD_RPM=60
-RATE_LIMIT_STANDARD_BURST=20
-
-# Verified users (future: premium tier)
-RATE_LIMIT_VERIFIED_RPM=120
-RATE_LIMIT_VERIFIED_BURST=50
-
-# Cleanup interval for stale buckets (seconds)
-RATE_LIMIT_CLEANUP_INTERVAL=300
-```
-
-### Response Headers
-All responses include rate limit information:
-- `X-RateLimit-Limit`: Maximum requests per minute for your tier
-- `X-RateLimit-Remaining`: Number of requests remaining
-- `X-RateLimit-Reset`: Unix timestamp when the limit resets
-
-When rate limited (429 response):
-- `Retry-After`: Seconds until the limit resets
-- JSON error body with retry guidance
-
-Example 429 response:
-```json
-{
-  "error": "Too Many Requests",
-  "message": "Rate limit exceeded. Please retry later.",
-  "retry_after": 5
-}
-```
-
 
 ## How MicroAI Paygate is Different
 
@@ -271,6 +210,52 @@ Create a `.env` (or use `.env.example`) with at least:
 - `VERIFIER_URL` — URL of verifier service (default: `http://127.0.0.1:3002`)
 
 Ensure ports `3000` (gateway), `3001` (web), and `3002` (verifier) are free.
+
+### Rate Limiting Configuration
+
+MicroAI Paygate implements token bucket rate limiting to prevent abuse and protect API quotas.
+
+**Features:**
+- Token bucket algorithm with burst support
+- Tiered limits (anonymous, authenticated, verified)
+- Per-IP and per-wallet tracking
+- Standard `X-RateLimit-*` headers
+
+**Default Limits:**
+
+| Tier | Requests/Minute | Burst | Identification |
+|------|----------------|-------|----------------|
+| Anonymous | 10 | 5 | IP address |
+| Standard | 60 | 20 | Signed requests (wallet nonce) |
+| Verified | 120 | 50 | Premium users (future) |
+
+**Configuration:**
+Add to your `.env` file:
+```bash
+# Rate Limiting
+RATE_LIMIT_ENABLED=true
+
+# Anonymous users (IP-based, no signature)
+RATE_LIMIT_ANONYMOUS_RPM=10
+RATE_LIMIT_ANONYMOUS_BURST=5
+
+# Standard users (signed requests)
+RATE_LIMIT_STANDARD_RPM=60
+RATE_LIMIT_STANDARD_BURST=20
+
+# Verified users (future: premium tier)
+RATE_LIMIT_VERIFIED_RPM=120
+RATE_LIMIT_VERIFIED_BURST=50
+
+# Cleanup interval for stale buckets (seconds)
+RATE_LIMIT_CLEANUP_INTERVAL=300
+```
+
+**Response Headers:**
+- `X-RateLimit-Limit`: Max requests per minute for your tier
+- `X-RateLimit-Remaining`: Requests remaining
+- `X-RateLimit-Reset`: Unix timestamp when limit resets
+- `Retry-After`: Seconds until reset (on 429 response)
 
 ### Docker Deployment (Production)
 
