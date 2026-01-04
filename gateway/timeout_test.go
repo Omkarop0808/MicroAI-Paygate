@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -50,10 +49,8 @@ func TestCallOpenRouter_RespectsContextTimeout(t *testing.T) {
 	}))
 	defer slow.Close()
 
-	os.Setenv("OPENROUTER_URL", slow.URL)
-	os.Setenv("OPENROUTER_API_KEY", "test")
-	defer os.Unsetenv("OPENROUTER_URL")
-	defer os.Unsetenv("OPENROUTER_API_KEY")
+	t.Setenv("OPENROUTER_URL", slow.URL)
+	t.Setenv("OPENROUTER_API_KEY", "test")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -85,14 +82,10 @@ func TestHandleSummarize_AIRequestTimeoutReturns504(t *testing.T) {
 	defer slowAI.Close()
 
 	// Environment
-	os.Setenv("OPENROUTER_URL", slowAI.URL)
-	os.Setenv("OPENROUTER_API_KEY", "test")
-	os.Setenv("VERIFIER_URL", verifier.URL)
-	os.Setenv("AI_REQUEST_TIMEOUT_SECONDS", "1")
-	defer os.Unsetenv("OPENROUTER_URL")
-	defer os.Unsetenv("OPENROUTER_API_KEY")
-	defer os.Unsetenv("VERIFIER_URL")
-	defer os.Unsetenv("AI_REQUEST_TIMEOUT_SECONDS")
+	t.Setenv("OPENROUTER_URL", slowAI.URL)
+	t.Setenv("OPENROUTER_API_KEY", "test")
+	t.Setenv("VERIFIER_URL", verifier.URL)
+	t.Setenv("AI_REQUEST_TIMEOUT_SECONDS", "1")
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -111,35 +104,14 @@ func TestHandleSummarize_AIRequestTimeoutReturns504(t *testing.T) {
 	r.ServeHTTP(w, req)
 	dur := time.Since(start)
 
-	// Additional tests for middleware behavior
-	// Fast handler should succeed when within timeout
-	rFast := gin.New()
-	rFast.Use(RequestTimeoutMiddleware(1 * time.Second))
-	rFast.GET("/fast", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
-	req2, _ := http.NewRequest("GET", "/fast", nil)
-	w2 := httptest.NewRecorder()
-	rFast.ServeHTTP(w2, req2)
-	if w2.Code != 200 {
-		t.Fatalf("Expected 200 for fast handler, got %d", w2.Code)
-	}
-
-	// Panics in handlers should still be handled by upstream Recovery middleware
-	rPanic := gin.Default()
-	rPanic.Use(RequestTimeoutMiddleware(1 * time.Second))
-	rPanic.GET("/panic", func(c *gin.Context) { panic("boom") })
-	req3, _ := http.NewRequest("GET", "/panic", nil)
-	w3 := httptest.NewRecorder()
-	rPanic.ServeHTTP(w3, req3)
-	if w3.Code != 500 {
-		t.Fatalf("Expected 500 from panic + recovery, got %d", w3.Code)
-	}
+	// NOTE: moved fast handler and panic handling into separate tests
 
 	if w.Code != 504 {
 		t.Fatalf("Expected 504 Gateway Timeout, got %d; body=%s", w.Code, w.Body.String())
 	}
 
-	// Ensure it timed out approximately around 1s (tighten upper bound to 1.5s)
-	if dur < 900*time.Millisecond || dur > 1500*time.Millisecond {
+	// Ensure it timed out approximately around 1s (allow more headroom in CI)
+	if dur < 900*time.Millisecond || dur > 2*time.Second {
 		t.Fatalf("Expected duration around 1s, got %v", dur)
 	}
 

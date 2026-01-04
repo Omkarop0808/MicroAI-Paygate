@@ -92,20 +92,20 @@ func RequestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 
 		origWriter := c.Writer
 		bw := newBufferedWriter()
-	// replace the gin writer with a shim that uses bw and keeps orig writer
-	c.Writer = &responseWriterShim{bw: bw, orig: origWriter}
-	finished := make(chan struct{})
-	panicChan := make(chan interface{}, 1)
+		// replace the gin writer with a shim that uses bw and keeps orig writer
+		c.Writer = &responseWriterShim{bw: bw, orig: origWriter}
+		finished := make(chan struct{})
+		panicChan := make(chan interface{}, 1)
 
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				panicChan <- r
-			}
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					panicChan <- r
+				}
+			}()
+			c.Next()
+			close(finished)
 		}()
-		c.Next()
-		close(finished)
-	}()
 		select {
 		case <-finished:
 			// Handler finished before deadline: flush buffered response
@@ -138,15 +138,15 @@ type responseWriterShim struct {
 	orig gin.ResponseWriter
 }
 
-func (rws *responseWriterShim) Header() http.Header { return rws.bw.Header() }
-func (rws *responseWriterShim) Write(data []byte) (int, error) { return rws.bw.Write(data) }
+func (rws *responseWriterShim) Header() http.Header               { return rws.bw.Header() }
+func (rws *responseWriterShim) Write(data []byte) (int, error)    { return rws.bw.Write(data) }
 func (rws *responseWriterShim) WriteString(s string) (int, error) { return rws.bw.WriteString(s) }
-func (rws *responseWriterShim) WriteHeader(statusCode int) { rws.bw.WriteHeader(statusCode) }
-func (rws *responseWriterShim) WriteHeaderNow() { rws.bw.WriteHeaderNow() }
-func (rws *responseWriterShim) Status() int { return rws.bw.Status() }
-func (rws *responseWriterShim) Written() bool { return rws.bw.wrote }
-func (rws *responseWriterShim) Size() int { return rws.bw.buf.Len() }
-func (rws *responseWriterShim) WriteHeaderNowWithoutLock() {}
+func (rws *responseWriterShim) WriteHeader(statusCode int)        { rws.bw.WriteHeader(statusCode) }
+func (rws *responseWriterShim) WriteHeaderNow()                   { rws.bw.WriteHeaderNow() }
+func (rws *responseWriterShim) Status() int                       { return rws.bw.Status() }
+func (rws *responseWriterShim) Written() bool                     { return rws.bw.wrote }
+func (rws *responseWriterShim) Size() int                         { return rws.bw.buf.Len() }
+func (rws *responseWriterShim) WriteHeaderNowWithoutLock()        {}
 
 // Flush flushes the response to the client if the underlying writer
 // supports http.Flusher. This is a no-op otherwise.
@@ -166,7 +166,9 @@ func (rws *responseWriterShim) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 
 // Pusher delegates to the underlying writer if it supports http.Pusher.
 func (rws *responseWriterShim) Pusher() http.Pusher {
-	if p, ok := rws.orig.(http.Pusher); ok { return p }
+	if p, ok := rws.orig.(http.Pusher); ok {
+		return p
+	}
 	return nil
 }
 
@@ -181,5 +183,3 @@ func (rws *responseWriterShim) CloseNotify() <-chan bool {
 	close(ch)
 	return ch
 }
-
-

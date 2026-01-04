@@ -63,9 +63,14 @@ func validateConfig() error {
 	return nil
 }
 func main() {
-	err := godotenv.Load("../.env")
+	// Try loading .env from current directory first, then fallback to parent
+	err := godotenv.Load(".env")
 	if err != nil {
-		log.Println("Warning: Error loading .env file")
+		// fallback to parent
+		err = godotenv.Load("../.env")
+		if err != nil {
+			log.Println("Warning: Error loading .env file")
+		}
 	}
 	if err := validateConfig(); err != nil {
 		fmt.Println("[Error] Missing required environment variables:")
@@ -97,7 +102,7 @@ func main() {
 	if os.Getenv("VERIFIER_URL") == "" {
 		fmt.Println("[WARN] VERIFIER_URL not set, using default verifier")
 	}
-    if os.Getenv("CHAIN_ID") == "" {
+	if os.Getenv("CHAIN_ID") == "" {
 		fmt.Println("[WARN] CHAIN_ID not set, using default: 8453(base)")
 	}
 
@@ -142,6 +147,9 @@ func main() {
 		r.Use(RateLimitMiddleware(limiters))
 		log.Println("Rate limiting enabled")
 	}
+
+	// Global request timeout middleware (default: 60s)
+	r.Use(RequestTimeoutMiddleware(getRequestTimeout()))
 
 	// Health check with shorter timeout (2s)
 	r.GET("/healthz", RequestTimeoutMiddleware(getHealthCheckTimeout()), handleHealth)
@@ -194,7 +202,11 @@ func handleSummarize(c *gin.Context) {
 		Signature: signature,
 	}
 
-	verifyBody, _ := json.Marshal(verifyReq)
+	verifyBody, err := json.Marshal(verifyReq)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to create verification request"})
+		return
+	}
 	verifierURL := os.Getenv("VERIFIER_URL")
 	if verifierURL == "" {
 		verifierURL = "http://127.0.0.1:3002"
@@ -210,24 +222,12 @@ func handleSummarize(c *gin.Context) {
 		return
 	}
 	vreq.Header.Set("Content-Type", "application/json")
-	// Configure HTTP client with a timeout derived from the verifier context
-	var resp *http.Response
-	if deadline, ok := verifierCtx.Deadline(); ok {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "Verifier request timed out"})
-			return
-		}
-		client := &http.Client{Timeout: remaining}
-		resp, err = client.Do(vreq)
-	} else {
-		// No deadline on verifierCtx - fall back to a conservative timeout
-		client := &http.Client{Timeout: getVerifierTimeout()}
-		resp, err = client.Do(vreq)
-	}
 
+	// Use http.DefaultClient and rely on verifierCtx for timeouts/cancellation.
+	resp, err := http.DefaultClient.Do(vreq)
 	if err != nil {
-		if verifierCtx.Err() == context.DeadlineExceeded || c.Request.Context().Err() == context.DeadlineExceeded {
+		// If the verifier or parent context timed out, return Gateway Timeout
+		if errors.Is(err, context.DeadlineExceeded) || verifierCtx.Err() == context.DeadlineExceeded || c.Request.Context().Err() == context.DeadlineExceeded {
 			c.JSON(504, gin.H{"error": "Gateway Timeout", "message": "Verifier request timed out"})
 			return
 		}
@@ -346,23 +346,10 @@ func callOpenRouter(ctx context.Context, text string) (string, error) {
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	// Configure HTTP client timeout based on request context's deadline if present
-	var resp *http.Response
-	if deadline, ok := ctx.Deadline(); ok {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return "", context.DeadlineExceeded
-		}
-		client := &http.Client{Timeout: remaining}
-		resp, err = client.Do(req)
-	} else {
-		// No deadline on ctx — use configured AI timeout as a sensible default
-		client := &http.Client{Timeout: getAITimeout()}
-		resp, err = client.Do(req)
-	}
-
+	// Use http.DefaultClient and rely on ctx for cancellation/timeouts.
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
+		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
 			return "", context.DeadlineExceeded
 		}
 		return "", err
@@ -464,7 +451,7 @@ func RateLimitMiddleware(limiters map[string]RateLimiter) gin.HandlerFunc {
 func getRateLimitKey(c *gin.Context) string {
 	signature := c.GetHeader("X-402-Signature")
 	nonce := c.GetHeader("X-402-Nonce")
-	
+
 	// Only use nonce-based key if BOTH signature and nonce are present
 	// This prevents attackers from bypassing IP rate limits with fake nonces
 	if signature != "" && nonce != "" {
