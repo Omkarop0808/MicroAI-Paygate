@@ -54,8 +54,9 @@ jobs:
             const behind = '${{ steps.check.outputs.behind }}';
             const ahead = '${{ steps.check.outputs.ahead }}';
             const base = '${{ github.event.pull_request.base.ref }}';
+            const headRef = '${{ github.event.pull_request.head.ref }}';
             
-            github.rest.issues.createComment({
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -64,14 +65,14 @@ jobs:
 This PR is **${behind} commits behind** \`${base}\`.
 
 **Status:**
-- ${behind} commits behind \`${base}\`  
+- ${behind} commits behind \`${base}\`
 - ${ahead} commits ahead of \`${base}\`
 
 **Action Required:**
 Please update your branch to include the latest changes from \`${base}\`:
 
 \`\`\`bash
-git checkout ${{ github.event.pull_request.head.ref }}
+git checkout ${headRef}
 git merge origin/${base}
 # Or for a cleaner history:
 git rebase origin/${base}
