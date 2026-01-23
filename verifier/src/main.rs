@@ -1,6 +1,6 @@
 use axum::{
     extract::Json,
-    http::{HeaderMap, StatusCode}, // VIBE FIX: Added HeaderMap to read headers
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
     Router,
 };
@@ -24,8 +24,39 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn health() -> &'static str {
-    "Rust Verifier OK"
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    service: &'static str,
+    version: &'static str,
+}
+
+fn correlation_id_headers(headers: &HeaderMap) -> (String, HeaderMap) {
+    // Extract correlation ID
+    let correlation_id = headers
+        .get("X-Correlation-ID")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+
+    let mut res_headers = HeaderMap::new();
+    if let Ok(header_value) = correlation_id.parse() {
+        res_headers.insert("X-Correlation-ID", header_value);
+    }
+
+    (correlation_id.to_string(), res_headers)
+}
+
+async fn health(headers: HeaderMap) -> (HeaderMap, Json<HealthResponse>) {
+    let (_correlation_id, res_headers) = correlation_id_headers(&headers);
+
+    (
+        res_headers,
+        Json(HealthResponse {
+            status: "healthy",
+            service: "verifier",
+            version: env!("CARGO_PKG_VERSION"),
+        }),
+    )
 }
 
 #[derive(Deserialize, Debug)]
@@ -55,17 +86,7 @@ async fn verify_signature(
     headers: HeaderMap,
     Json(payload): Json<VerifyRequest>,
 ) -> (StatusCode, HeaderMap, Json<VerifyResponse>) {
-    // Extract ID
-    let correlation_id = headers
-        .get("X-Correlation-ID")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown");
-
-    // Prepare response header
-    let mut res_headers = HeaderMap::new();
-    if let Ok(header_value) = correlation_id.parse() {
-        res_headers.insert("X-Correlation-ID", header_value);
-    }
+    let (correlation_id, res_headers) = correlation_id_headers(&headers);
 
     println!(
         "[CorrelationID: {}] Received verification request for nonce: {}",
@@ -175,6 +196,29 @@ mod tests {
     use super::*;
     use ethers::signers::{LocalWallet, Signer};
     use ethers::types::transaction::eip712::TypedData;
+
+    #[tokio::test]
+    async fn test_health_endpoint() {
+        let (_headers, Json(response)) = health(HeaderMap::new()).await;
+
+        assert_eq!(response.status, "healthy");
+        assert_eq!(response.service, "verifier");
+        assert_eq!(response.version, env!("CARGO_PKG_VERSION"));
+    }
+
+    #[tokio::test]
+    async fn test_health_endpoint_correlation_id() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Correlation-ID", "health-check-id".parse().unwrap());
+
+        let (res_headers, Json(response)) = health(headers).await;
+
+        assert_eq!(response.status, "healthy");
+
+        let response_id = res_headers.get("X-Correlation-ID");
+        assert!(response_id.is_some());
+        assert_eq!(response_id.unwrap().to_str().unwrap(), "health-check-id");
+    }
 
     #[tokio::test]
     async fn test_verify_signature_valid() {
