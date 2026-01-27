@@ -36,6 +36,7 @@ type PaymentContext struct {
 	Amount    string `json:"amount"`
 	Nonce     string `json:"nonce"`
 	ChainID   int    `json:"chainId"`
+	Timestamp uint64 `json:"timestamp"`
 }
 
 type VerifyRequest struct {
@@ -146,10 +147,25 @@ func main() {
 	})
 
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3001"},
-		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "X-402-Signature", "X-402-Nonce", "X-Correlation-ID"},                                                          // Added X-Correlation-ID
-		ExposeHeaders:    []string{"Content-Length", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After", "X-402-Receipt", "X-Correlation-ID"}, // Added X-Correlation-ID
+		AllowOrigins: []string{"http://localhost:3001"},
+		AllowMethods: []string{"GET", "POST", "OPTIONS"},
+		AllowHeaders: []string{
+			"Origin",
+			"Content-Type",
+			"X-402-Signature",
+			"X-402-Nonce",
+			"X-402-Timestamp",
+			"X-Correlation-ID",
+		},
+		ExposeHeaders: []string{
+			"Content-Length",
+			"X-RateLimit-Limit",
+			"X-RateLimit-Remaining",
+			"X-RateLimit-Reset",
+			"Retry-After",
+			"X-402-Receipt",
+			"X-Correlation-ID",
+		},
 		AllowCredentials: true,
 	}))
 
@@ -224,6 +240,7 @@ func handleSummarize(c *gin.Context) {
 
 	signature := c.GetHeader("X-402-Signature")
 	nonce := c.GetHeader("X-402-Nonce")
+	timestampHeader := c.GetHeader("X-402-Timestamp")
 
 	// Basic check
 	if signature == "" || nonce == "" {
@@ -232,6 +249,17 @@ func handleSummarize(c *gin.Context) {
 			"message":        "Please sign the payment context",
 			"paymentContext": createPaymentContext(),
 		})
+		return
+	}
+
+	if timestampHeader == "" {
+		c.JSON(400, gin.H{"error": "Invalid timestamp", "details": "Missing X-402-Timestamp header"})
+		return
+	}
+
+	timestampValue, err := strconv.ParseUint(timestampHeader, 10, 64)
+	if err != nil || timestampValue == 0 {
+		c.JSON(400, gin.H{"error": "Invalid timestamp", "details": "Invalid X-402-Timestamp header"})
 		return
 	}
 
@@ -259,7 +287,7 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	// Verify
-	verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce)
+	verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, uint64(timestampValue))
 	if err != nil {
 		log.Printf("Verification error: %v", err)
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -271,7 +299,14 @@ func handleSummarize(c *gin.Context) {
 	}
 
 	if !verifyResp.IsValid {
-		c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
+		// Check for timestamp-related errors (E007, E008, E009)
+		if strings.HasPrefix(verifyResp.Error, "E007") ||
+			strings.HasPrefix(verifyResp.Error, "E008") ||
+			strings.HasPrefix(verifyResp.Error, "E009") {
+			c.JSON(400, gin.H{"error": "Invalid timestamp", "details": verifyResp.Error})
+		} else {
+			c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
+		}
 		return
 	}
 
@@ -310,13 +345,15 @@ func handleSummarize(c *gin.Context) {
 }
 
 // verifyPayment calls the verification service.
-func verifyPayment(ctx context.Context, signature, nonce string) (*VerifyResponse, *PaymentContext, error) {
+
+func verifyPayment(ctx context.Context, signature, nonce string, timestamp uint64) (*VerifyResponse, *PaymentContext, error) {
 	paymentCtx := PaymentContext{
 		Recipient: getRecipientAddress(),
 		Token:     "USDC",
 		Amount:    getPaymentAmount(),
 		Nonce:     nonce,
 		ChainID:   getChainID(),
+		Timestamp: timestamp,
 	}
 
 	verifyReq := VerifyRequest{
@@ -416,6 +453,7 @@ func createPaymentContext() PaymentContext {
 		Amount:    getPaymentAmount(),
 		Nonce:     uuid.New().String(),
 		ChainID:   getChainID(),
+		Timestamp: uint64(time.Now().Unix()),
 	}
 }
 

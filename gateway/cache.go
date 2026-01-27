@@ -12,6 +12,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -113,7 +115,19 @@ func CacheMiddleware() gin.HandlerFunc {
 
 			// Cache HIT! -> Verify Payment *BEFORE* serving
 			// verifyPayment creates its own timeout context, so pass request context directly
-			verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce)
+			timestampStr := c.GetHeader("X-402-Timestamp")
+			if timestampStr == "" {
+				c.JSON(400, gin.H{"error": "Invalid timestamp", "details": "Missing X-402-Timestamp header"})
+				c.Abort()
+				return
+			}
+			timestamp, err := strconv.ParseUint(timestampStr, 10, 64)
+			if err != nil || timestamp == 0 {
+				c.JSON(400, gin.H{"error": "Invalid timestamp", "details": "Invalid X-402-Timestamp header"})
+				c.Abort()
+				return
+			}
+			verifyResp, paymentCtx, err := verifyPayment(c.Request.Context(), signature, nonce, timestamp)
 			if err != nil {
 				log.Printf("Verification error on cache hit: %v", err)
 				if errors.Is(err, context.DeadlineExceeded) {
@@ -126,7 +140,14 @@ func CacheMiddleware() gin.HandlerFunc {
 			}
 
 			if !verifyResp.IsValid {
-				c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
+				// Check for timestamp-related errors (E007, E008, E009)
+				if strings.HasPrefix(verifyResp.Error, "E007") ||
+					strings.HasPrefix(verifyResp.Error, "E008") ||
+					strings.HasPrefix(verifyResp.Error, "E009") {
+					c.JSON(400, gin.H{"error": "Invalid timestamp", "details": verifyResp.Error})
+				} else {
+					c.JSON(403, gin.H{"error": "Invalid Signature", "details": verifyResp.Error})
+				}
 				c.Abort()
 				return
 			}

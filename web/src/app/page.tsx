@@ -16,6 +16,7 @@ type PaymentContext = {
   amount: string;
   nonce: string;
   chainId: number;
+  timestamp: number;
 };
 
 export default function Home() {
@@ -95,6 +96,7 @@ export default function Home() {
             { name: "token", type: "string" },
             { name: "amount", type: "string" },
             { name: "nonce", type: "string" },
+            { name: "timestamp", type: "uint256" },
           ],
         };
 
@@ -103,6 +105,7 @@ export default function Home() {
           token: paymentContext.token,
           amount: paymentContext.amount,
           nonce: paymentContext.nonce,
+          timestamp: paymentContext.timestamp,
         };
 
         setStatus("Please sign the transaction in your wallet...");
@@ -116,6 +119,7 @@ export default function Home() {
             "Content-Type": "application/json",
             "X-402-Signature": signature,
             "X-402-Nonce": paymentContext.nonce,
+            "X-402-Timestamp": paymentContext.timestamp.toString(),
           },
           body: JSON.stringify({ text: input }),
         });
