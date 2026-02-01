@@ -1,3 +1,5 @@
+use axum::extract::rejection::JsonRejection;
+use axum::extract::DefaultBodyLimit;
 use axum::{
     extract::Json,
     http::{HeaderMap, StatusCode},
@@ -11,9 +13,7 @@ use std::env;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use axum::extract::DefaultBodyLimit;
 use tower_http::limit::RequestBodyLimitLayer;
-use axum::extract::rejection::JsonRejection;
 
 const MAX_BODY_SIZE: usize = 1024 * 1024; // 1MB
 
@@ -21,8 +21,9 @@ fn get_max_body_size() -> usize {
     std::env::var("MAX_REQUEST_BODY_BYTES")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(1024 * 1024) // Default to 1MB if not set
+        .unwrap_or(MAX_BODY_SIZE) // Use the constant here
 }
+
 #[tokio::main]
 async fn main() {
     let limit = get_max_body_size();
@@ -164,7 +165,7 @@ fn validate_timestamp(timestamp: Option<u64>) -> Result<(), VerifyError> {
 
 async fn verify_signature(
     headers: HeaderMap,
-    payload: Result<Json<VerifyRequest>, JsonRejection>, 
+    payload: Result<Json<VerifyRequest>, JsonRejection>,
 ) -> (StatusCode, HeaderMap, Json<VerifyResponse>) {
     // 1. Get correlation ID headers first so we can use them in error responses
     let (cid, res_headers) = correlation_id_headers(&headers);
@@ -180,7 +181,10 @@ async fn verify_signature(
                 Json(VerifyResponse {
                     is_valid: false,
                     recovered_address: None,
-                    error: Some("Request body too large (max 1MB)".into()),
+                    error: Some(format!(
+                        "Request body too large (max {} bytes)",
+                        get_max_body_size()
+                    )),
                 }),
             );
         }
@@ -419,7 +423,7 @@ mod tests {
             signature: format!("0x{}", hex::encode(sig.to_vec())),
         };
 
-        let (status, _, Json(resp)) = verify_signature(HeaderMap::new(), Json(req)).await;
+        let (status, _, Json(resp)) = verify_signature(HeaderMap::new(), Ok(Json(req))).await;
 
         assert_eq!(status, StatusCode::OK);
         assert!(resp.is_valid);
@@ -464,7 +468,7 @@ mod tests {
         };
 
         let (status, _headers, Json(_response)) =
-            verify_signature(HeaderMap::new(), Json(req)).await;
+            verify_signature(HeaderMap::new(), Ok(Json(req))).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
@@ -489,7 +493,7 @@ mod tests {
             signature: "0x1234567890".to_string(),
         };
 
-        let (_status, response_headers, _json) = verify_signature(headers, Json(req)).await;
+        let (_status, response_headers, _json) = verify_signature(headers, Ok(Json(req))).await;
 
         let response_id = response_headers.get("X-Correlation-ID");
         assert!(
@@ -520,7 +524,7 @@ mod tests {
             signature: "0x1234567890".to_string(),
         };
 
-        let (_status, response_headers, _json) = verify_signature(headers, Json(req)).await;
+        let (_status, response_headers, _json) = verify_signature(headers, Ok(Json(req))).await;
 
         let response_id = response_headers.get("X-Correlation-ID");
         assert!(
@@ -591,7 +595,7 @@ mod tests {
             signature: signature_str,
         };
 
-        let (status, response_headers, Json(response)) = verify_signature(headers, Json(req)).await;
+        let (status, response_headers, Json(response)) = verify_signature(headers, Ok(Json(req))).await;
 
         assert_eq!(status, StatusCode::OK);
         assert!(response.is_valid);
@@ -629,7 +633,7 @@ mod tests {
             signature: "0x1234567890".to_string(),
         };
 
-        let (_status, response_headers, _json) = verify_signature(headers, Json(req)).await;
+        let (_status, response_headers, _json) = verify_signature(headers, Ok(Json(req))).await;
 
         let response_id = response_headers.get("X-Correlation-ID");
         assert!(response_id.is_some());
