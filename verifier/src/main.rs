@@ -595,7 +595,8 @@ mod tests {
             signature: signature_str,
         };
 
-        let (status, response_headers, Json(response)) = verify_signature(headers, Ok(Json(req))).await;
+        let (status, response_headers, Json(response)) =
+            verify_signature(headers, Ok(Json(req))).await;
 
         assert_eq!(status, StatusCode::OK);
         assert!(response.is_valid);
