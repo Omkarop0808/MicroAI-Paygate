@@ -13,14 +13,20 @@ use std::env;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tower_http::limit::RequestBodyLimitLayer;
 
 const MAX_BODY_SIZE: usize = 1024 * 1024; // 1MB
 
 fn get_max_body_size() -> usize {
     match std::env::var("MAX_REQUEST_BODY_BYTES") {
         Ok(v) => match v.parse() {
-            Ok(size) => size,
+            Ok(size) if size > 0 => size, // Only accept positive numbers
+            Ok(_) => {
+                eprintln!(
+                    "Warning: MAX_REQUEST_BODY_BYTES must be > 0, using default {}",
+                    MAX_BODY_SIZE
+                );
+                MAX_BODY_SIZE
+            }
             Err(_) => {
                 eprintln!(
                     "Warning: Invalid MAX_REQUEST_BODY_BYTES '{}', using default {}",
@@ -39,8 +45,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health))
         .route("/verify", post(verify_signature))
-        .layer(DefaultBodyLimit::max(limit))
-        .layer(RequestBodyLimitLayer::new(limit));
+        .layer(DefaultBodyLimit::max(limit));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3002));
     println!("Rust Verifier listening on {}", addr);
