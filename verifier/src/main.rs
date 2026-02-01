@@ -11,12 +11,26 @@ use std::env;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
+use axum::extract::DefaultBodyLimit;
+use tower_http::limit::RequestBodyLimitLayer;
+use axum::extract::rejection::JsonRejection;
 
+const MAX_BODY_SIZE: usize = 1024 * 1024; // 1MB
+
+fn get_max_body_size() -> usize {
+    std::env::var("MAX_REQUEST_BODY_BYTES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1024 * 1024) // Default to 1MB if not set
+}
 #[tokio::main]
 async fn main() {
+    let limit = get_max_body_size();
     let app = Router::new()
         .route("/health", get(health))
-        .route("/verify", post(verify_signature));
+        .route("/verify", post(verify_signature))
+        .layer(DefaultBodyLimit::max(limit))
+        .layer(RequestBodyLimitLayer::new(limit));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3002));
     println!("Rust Verifier listening on {}", addr);
@@ -150,10 +164,41 @@ fn validate_timestamp(timestamp: Option<u64>) -> Result<(), VerifyError> {
 
 async fn verify_signature(
     headers: HeaderMap,
-    Json(payload): Json<VerifyRequest>,
+    payload: Result<Json<VerifyRequest>, JsonRejection>, 
 ) -> (StatusCode, HeaderMap, Json<VerifyResponse>) {
+    // 1. Get correlation ID headers first so we can use them in error responses
     let (cid, res_headers) = correlation_id_headers(&headers);
 
+    // 2. Security Check: Match the payload result immediately
+    let payload = match payload {
+        Ok(Json(p)) => p, // Everything is good, proceed with payload 'p'
+        Err(JsonRejection::BytesRejection(_)) => {
+            println!("[CID: {}] Rejected: Payload too large", cid);
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                res_headers,
+                Json(VerifyResponse {
+                    is_valid: false,
+                    recovered_address: None,
+                    error: Some("Request body too large (max 1MB)".into()),
+                }),
+            );
+        }
+        Err(e) => {
+            println!("[CID: {}] Rejected: Invalid JSON or formatting", cid);
+            return (
+                StatusCode::BAD_REQUEST,
+                res_headers,
+                Json(VerifyResponse {
+                    is_valid: false,
+                    recovered_address: None,
+                    error: Some(format!("Invalid request: {}", e)),
+                }),
+            );
+        }
+    };
+
+    // 3. Now that we have a safe payload, proceed with your existing logic
     println!("[CID: {}] Verify nonce={}", cid, payload.context.nonce);
 
     if let Err(err) = validate_timestamp(payload.context.timestamp) {
