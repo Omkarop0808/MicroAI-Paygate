@@ -18,10 +18,19 @@ use tower_http::limit::RequestBodyLimitLayer;
 const MAX_BODY_SIZE: usize = 1024 * 1024; // 1MB
 
 fn get_max_body_size() -> usize {
-    std::env::var("MAX_REQUEST_BODY_BYTES")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(MAX_BODY_SIZE) // Use the constant here
+    match std::env::var("MAX_REQUEST_BODY_BYTES") {
+        Ok(v) => match v.parse() {
+            Ok(size) => size,
+            Err(_) => {
+                eprintln!(
+                    "Warning: Invalid MAX_REQUEST_BODY_BYTES '{}', using default {}",
+                    v, MAX_BODY_SIZE
+                );
+                MAX_BODY_SIZE
+            }
+        },
+        Err(_) => MAX_BODY_SIZE,
+    }
 }
 
 #[tokio::main]
@@ -643,5 +652,19 @@ mod tests {
             "550e8400-e29b-41d4-a716-446655440000",
             "UUID correlation ID should be preserved exactly"
         );
+    }
+    #[tokio::test]
+    async fn test_verify_signature_rejection_paths() {
+        use axum::extract::rejection::JsonRejection;
+
+        // 1. Test a generic JSON rejection (e.g., bad formatting)
+        // We simulate a "Missing Content-Type" style error
+        let body_rejection = axum::extract::rejection::MissingJsonContentType::default();
+        let rejection = JsonRejection::from(body_rejection);
+
+        let (status, _, Json(resp)) = verify_signature(HeaderMap::new(), Err(rejection)).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(resp.error.unwrap().contains("Invalid request"));
     }
 }
