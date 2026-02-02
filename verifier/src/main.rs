@@ -1,5 +1,5 @@
 use axum::extract::rejection::JsonRejection;
-use axum::extract::DefaultBodyLimit;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::{
     extract::Json,
     http::{HeaderMap, StatusCode},
@@ -15,6 +15,11 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_BODY_SIZE: usize = 1024 * 1024; // 1MB
+
+#[derive(Clone)]
+struct AppState {
+    max_body_size: usize,
+}
 
 fn get_max_body_size() -> usize {
     match std::env::var("MAX_REQUEST_BODY_BYTES") {
@@ -42,10 +47,14 @@ fn get_max_body_size() -> usize {
 #[tokio::main]
 async fn main() {
     let limit = get_max_body_size();
+    let state = AppState {
+        max_body_size: limit,
+    };
     let app = Router::new()
         .route("/health", get(health))
         .route("/verify", post(verify_signature))
-        .layer(DefaultBodyLimit::max(limit));
+        .layer(DefaultBodyLimit::max(limit))
+        .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3002));
     println!("Rust Verifier listening on {}", addr);
@@ -178,6 +187,7 @@ fn validate_timestamp(timestamp: Option<u64>) -> Result<(), VerifyError> {
 ======================= */
 
 async fn verify_signature(
+    State(state): State<AppState>,
     headers: HeaderMap,
     payload: Result<Json<VerifyRequest>, JsonRejection>,
 ) -> (StatusCode, HeaderMap, Json<VerifyResponse>) {
@@ -197,7 +207,7 @@ async fn verify_signature(
                     recovered_address: None,
                     error: Some(format!(
                         "Request body too large (max {} bytes)",
-                        get_max_body_size()
+                        state.max_body_size
                     )),
                 }),
             );
@@ -330,6 +340,12 @@ mod tests {
     use ethers::signers::{LocalWallet, Signer};
     use ethers::types::transaction::eip712::TypedData;
 
+    fn app_state() -> AppState {
+        AppState {
+            max_body_size: MAX_BODY_SIZE,
+        }
+    }
+
     fn now() -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -437,7 +453,8 @@ mod tests {
             signature: format!("0x{}", hex::encode(sig.to_vec())),
         };
 
-        let (status, _, Json(resp)) = verify_signature(HeaderMap::new(), Ok(Json(req))).await;
+        let (status, _, Json(resp)) =
+            verify_signature(State(app_state()), HeaderMap::new(), Ok(Json(req))).await;
 
         assert_eq!(status, StatusCode::OK);
         assert!(resp.is_valid);
@@ -482,7 +499,7 @@ mod tests {
         };
 
         let (status, _headers, Json(_response)) =
-            verify_signature(HeaderMap::new(), Ok(Json(req))).await;
+            verify_signature(State(app_state()), HeaderMap::new(), Ok(Json(req))).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
@@ -507,7 +524,8 @@ mod tests {
             signature: "0x1234567890".to_string(),
         };
 
-        let (_status, response_headers, _json) = verify_signature(headers, Ok(Json(req))).await;
+        let (_status, response_headers, _json) =
+            verify_signature(State(app_state()), headers, Ok(Json(req))).await;
 
         let response_id = response_headers.get("X-Correlation-ID");
         assert!(
@@ -538,7 +556,8 @@ mod tests {
             signature: "0x1234567890".to_string(),
         };
 
-        let (_status, response_headers, _json) = verify_signature(headers, Ok(Json(req))).await;
+        let (_status, response_headers, _json) =
+            verify_signature(State(app_state()), headers, Ok(Json(req))).await;
 
         let response_id = response_headers.get("X-Correlation-ID");
         assert!(
@@ -610,7 +629,7 @@ mod tests {
         };
 
         let (status, response_headers, Json(response)) =
-            verify_signature(headers, Ok(Json(req))).await;
+            verify_signature(State(app_state()), headers, Ok(Json(req))).await;
 
         assert_eq!(status, StatusCode::OK);
         assert!(response.is_valid);
@@ -648,7 +667,8 @@ mod tests {
             signature: "0x1234567890".to_string(),
         };
 
-        let (_status, response_headers, _json) = verify_signature(headers, Ok(Json(req))).await;
+        let (_status, response_headers, _json) =
+            verify_signature(State(app_state()), headers, Ok(Json(req))).await;
 
         let response_id = response_headers.get("X-Correlation-ID");
         assert!(response_id.is_some());
@@ -667,7 +687,8 @@ mod tests {
         let body_rejection = axum::extract::rejection::MissingJsonContentType::default();
         let rejection = JsonRejection::from(body_rejection);
 
-        let (status, _, Json(resp)) = verify_signature(HeaderMap::new(), Err(rejection)).await;
+        let (status, _, Json(resp)) =
+            verify_signature(State(app_state()), HeaderMap::new(), Err(rejection)).await;
 
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(resp.error.unwrap().contains("Invalid request"));
@@ -683,9 +704,13 @@ mod tests {
         // 1. Force the limit to our constant (1MB) instead of reading the environment.
         // This makes the test deterministic.
         let limit = MAX_BODY_SIZE;
+        let state = AppState {
+            max_body_size: limit,
+        };
         let app = Router::new()
             .route("/verify", post(verify_signature))
-            .layer(DefaultBodyLimit::max(limit));
+            .layer(DefaultBodyLimit::max(limit))
+            .with_state(state);
 
         // 2. Create a "too large" payload (2MB) which is guaranteed to exceed 1MB.
         let large_data = vec![b'a'; 2 * 1024 * 1024];
