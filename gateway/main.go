@@ -55,6 +55,9 @@ type SummarizeRequest struct {
 	Text string `json:"text"`
 }
 
+// validateConfig validates all required environment variables at startup.
+// It checks for OPENROUTER_API_KEY, SERVER_WALLET_PRIVATE_KEY, and conditionally REDIS_URL.
+// Returns an error listing all missing variables if any are not set.
 func validateConfig() error {
 	required := []string{
 		"OPENROUTER_API_KEY",
@@ -93,7 +96,9 @@ func validateConfig() error {
 	return nil
 }
 
-// validateServerPrivateKey validates the private key format without loading it into memory
+// validateServerPrivateKey validates the private key format without loading it into memory.
+// It checks that the key is valid hex, has proper length (31-32 bytes), and handles 0x prefix.
+// This prevents runtime failures when the server tries to sign receipts.
 func validateServerPrivateKey() error {
 	keyHex := os.Getenv("SERVER_WALLET_PRIVATE_KEY")
 	if keyHex == "" {
@@ -120,7 +125,9 @@ func validateServerPrivateKey() error {
 	return nil
 }
 
-// validateRedisURL validates the Redis URL format without connecting
+// validateRedisURL validates the Redis URL format without connecting.
+// It supports both redis:// URLs and host:port format.
+// Only called when CACHE_ENABLED=true to ensure Redis is properly configured.
 func validateRedisURL() error {
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
