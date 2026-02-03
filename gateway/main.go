@@ -28,6 +28,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 )
 
 type PaymentContext struct {
@@ -57,16 +58,89 @@ type SummarizeRequest struct {
 func validateConfig() error {
 	required := []string{
 		"OPENROUTER_API_KEY",
+		"SERVER_WALLET_PRIVATE_KEY", // Critical for signing receipts
 	}
+
+	// Add REDIS_URL to required if caching is enabled
+	if getCacheEnabled() {
+		required = append(required, "REDIS_URL")
+	}
+
+	// Iterate and collect all missing vars, returning a comprehensive error
 	var missing []string
 	for _, key := range required {
 		if os.Getenv(key) == "" {
 			missing = append(missing, key)
 		}
 	}
+
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required environment variables: %v", missing)
 	}
+
+	// Validate SERVER_WALLET_PRIVATE_KEY format early (before server starts accepting traffic)
+	if err := validateServerPrivateKey(); err != nil {
+		return fmt.Errorf("SERVER_WALLET_PRIVATE_KEY validation failed: %w", err)
+	}
+
+	// Validate REDIS_URL format if caching is enabled
+	if getCacheEnabled() {
+		if err := validateRedisURL(); err != nil {
+			return fmt.Errorf("REDIS_URL validation failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// validateServerPrivateKey validates the private key format without loading it into memory
+func validateServerPrivateKey() error {
+	keyHex := os.Getenv("SERVER_WALLET_PRIVATE_KEY")
+	if keyHex == "" {
+		return fmt.Errorf("SERVER_WALLET_PRIVATE_KEY not set")
+	}
+
+	// Remove 0x prefix if present
+	keyHex = strings.TrimPrefix(keyHex, "0x")
+
+	keyBytes, err := hex.DecodeString(keyHex)
+	if err != nil {
+		return fmt.Errorf("invalid private key format: %w", err)
+	}
+
+	// Validate key length (same validation as getServerPrivateKey)
+	if len(keyBytes) < 31 {
+		return fmt.Errorf("private key too short: got %d bytes, expected at least 31 bytes", len(keyBytes))
+	}
+
+	if len(keyBytes) > 32 {
+		return fmt.Errorf("private key must be at most 32 bytes, got %d bytes", len(keyBytes))
+	}
+
+	return nil
+}
+
+// validateRedisURL validates the Redis URL format without connecting
+func validateRedisURL() error {
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		return fmt.Errorf("REDIS_URL not set but CACHE_ENABLED=true")
+	}
+
+	// Validate Redis URL format
+	if strings.HasPrefix(redisURL, "redis://") || strings.HasPrefix(redisURL, "rediss://") {
+		// Parse full Redis URL to validate format
+		_, err := redis.ParseURL(redisURL)
+		if err != nil {
+			return fmt.Errorf("invalid REDIS_URL format: %w", err)
+		}
+	} else {
+		// Validate host:port format
+		if !strings.Contains(redisURL, ":") {
+			return fmt.Errorf("REDIS_URL must be in format 'host:port' or 'redis://...' but got: %s", redisURL)
+		}
+	}
+
 	return nil
 }
 func main() {
