@@ -1,6 +1,6 @@
 module gateway
 
-go 1.24.0
+go 1.23
 
 require (
 	github.com/ethereum/go-ethereum v1.16.8
