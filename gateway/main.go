@@ -16,6 +16,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime"
 	"strconv"
@@ -28,7 +29,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
-	"github.com/redis/go-redis/v9"
 )
 
 type PaymentContext struct {
@@ -134,19 +134,25 @@ func validateRedisURL() error {
 		return fmt.Errorf("REDIS_URL not set but CACHE_ENABLED=true")
 	}
 
-	// Validate Redis URL format
+	// Handle redis:// or rediss:// schemes
 	if strings.HasPrefix(redisURL, "redis://") || strings.HasPrefix(redisURL, "rediss://") {
-		// Parse full Redis URL to validate format
-		_, err := redis.ParseURL(redisURL)
-		if err != nil {
-			return fmt.Errorf("invalid REDIS_URL format: %w", err)
+		// Parse the URL to extract the host:port
+		u, err := url.Parse(redisURL)
+		if err != nil || u.Host == "" {
+			return fmt.Errorf("invalid REDIS_URL format")
 		}
-	} else {
-		// Validate host:port format
-		parts := strings.Split(redisURL, ":")
+		// Verify host:port format
+		parts := strings.Split(u.Host, ":")
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return fmt.Errorf("REDIS_URL must be in format 'host:port' or 'redis://...' but got: %s", redisURL)
+			return fmt.Errorf("invalid REDIS_URL format")
 		}
+		return nil
+	}
+
+	// Handle plain host:port format
+	parts := strings.Split(redisURL, ":")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return fmt.Errorf("REDIS_URL must be in format 'host:port'")
 	}
 
 	return nil
