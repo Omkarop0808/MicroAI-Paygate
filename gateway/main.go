@@ -143,7 +143,8 @@ func validateRedisURL() error {
 		}
 	} else {
 		// Validate host:port format
-		if !strings.Contains(redisURL, ":") {
+		parts := strings.Split(redisURL, ":")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 			return fmt.Errorf("REDIS_URL must be in format 'host:port' or 'redis://...' but got: %s", redisURL)
 		}
 	}

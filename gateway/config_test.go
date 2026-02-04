@@ -29,6 +29,7 @@ func TestValidateConfig_WithRequiredEnv(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "test-key")
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("CACHE_ENABLED", "false")
+	t.Setenv("RECIPIENT_ADDRESS", "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219")
 
 	err := validateConfig()
 	if err != nil {
@@ -41,6 +42,7 @@ func TestValidateConfig_CacheEnabledRequiresRedis(t *testing.T) {
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("CACHE_ENABLED", "true")
 	t.Setenv("REDIS_URL", "")
+	t.Setenv("RECIPIENT_ADDRESS", "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219")
 
 	err := validateConfig()
 	if err == nil {
@@ -57,6 +59,7 @@ func TestValidateConfig_CacheEnabledWithValidRedis(t *testing.T) {
 	t.Setenv("SERVER_WALLET_PRIVATE_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("CACHE_ENABLED", "true")
 	t.Setenv("REDIS_URL", "localhost:6379")
+	t.Setenv("RECIPIENT_ADDRESS", "0x2cAF48b4BA1C58721a85dFADa5aC01C2DFa62219")
 
 	err := validateConfig()
 	if err != nil {
@@ -116,7 +119,7 @@ func TestValidateServerPrivateKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("SERVER_WALLET_PRIVATE_KEY", tt.key)
 			err := validateServerPrivateKey()
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error for key %q, got nil", tt.key)
@@ -168,6 +171,24 @@ func TestValidateRedisURL(t *testing.T) {
 			errMsg:  "REDIS_URL must be in format 'host:port'",
 		},
 		{
+			name:    "invalid host:port format - empty host",
+			url:     ":6379",
+			wantErr: true,
+			errMsg:  "REDIS_URL must be in format 'host:port'",
+		},
+		{
+			name:    "invalid host:port format - empty port",
+			url:     "localhost:",
+			wantErr: true,
+			errMsg:  "REDIS_URL must be in format 'host:port'",
+		},
+		{
+			name:    "invalid host:port format - multiple colons",
+			url:     ":::",
+			wantErr: true,
+			errMsg:  "REDIS_URL must be in format 'host:port'",
+		},
+		{
 			name:    "invalid redis URL",
 			url:     "redis://invalid-url-format",
 			wantErr: true,
@@ -179,7 +200,7 @@ func TestValidateRedisURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("REDIS_URL", tt.url)
 			err := validateRedisURL()
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error for URL %q, got nil", tt.url)
