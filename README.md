@@ -86,45 +86,62 @@ flowchart TB
     AGENT -.-> CHAIN
 ```
 
-### Service Communication
-
-| Service | Technology | Port | Responsibility |
-|---------|------------|------|----------------|
-| **Gateway** | Go + Gin | `3000` | Traffic routing, x402 enforcement, AI proxying |
-| **Verifier** | Rust + Axum | `3002` | EIP-712 signature recovery, ECDSA validation |
-| **Web** | Next.js | `3001` | React frontend with MetaMask integration |
-
----
-
 ### x402 Protocol Flow
 
 The x402 protocol enables trustless, per-request payments using cryptographic signatures:
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    
-    participant C as Client
-    participant G as Gateway
-    participant V as Verifier
-    participant AI as OpenRouter
+graph TD
+    subgraph Client_Layer [Client - Next.js/MetaMask]
+        A[User Request] --> B{Signed?}
+        B -- No --> C[Receive 402 Context]
+        C --> D[Sign EIP-712]
+        D --> E[Resubmit with X-402-Signature]
+    end
 
-    Note over C,G: Phase 1 - Payment Challenge
-    C->>G: POST /api/ai/summarize
-    G-->>C: 402 Payment Required + paymentContext
+    subgraph Edge_Gateway [Gateway - Go/Gin]
+        E --> F[Token Bucket Rate Limiter]
+        F --> G{Cache Check}
+        G -- Miss --> H[Internal HTTP Request]
+        G -- Hit --> I[Verify Receipt & Return]
+    end
 
-    Note over C: Phase 2 - User Signs Payment
-    C->>C: Sign EIP-712 TypedData with Wallet
+    subgraph Crypto_Service [Verifier - Rust/Axum]
+        H --> J[k256 ECDSA Recovery]
+        J --> K{Signature Valid?}
+        K -- Yes --> L[Sign Receipt]
+    end
 
-    Note over C,AI: Phase 3 - Verified Request
-    C->>G: POST with X-402-Signature + X-402-Nonce
-    G->>V: Verify signature
-    V->>V: Recover signer via ECDSA
-    V-->>G: is_valid + recovered_address
-    G->>AI: Forward to AI provider
-    AI-->>G: AI response
-    G-->>C: 200 OK + result
+    subgraph Storage [Persistence]
+        L --> M[(Redis Cache)]
+        L --> N[(Receipt Store)]
+    end
+
+    %% Component Styling
+    style Edge_Gateway fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    style Crypto_Service fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    style Storage fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style Client_Layer fill:#f5f5f5,stroke:#333,stroke-dasharray: 5 5
 ```
+
+## 🛡️ Security & Cryptographic Integrity
+
+MicroAI Paygate implements the **x402 Protocol** using a zero-trust verification model. We utilize **EIP-712** typed signatures to prevent phishing and "blind signing" attacks common with raw hex strings.
+
+### 1. Cryptographic Verification Logic
+The Rust Verifier performs Elliptic Curve Digital Signature Algorithm (ECDSA) recovery to ensure the signer address $\sigma_{addr}$ matches the expected payer. The verification follows the logic:
+
+$$V(m, \sigma) \rightarrow \text{Address}$$
+
+Where:
+- $m$: The EIP-712 structured hash of the `PaymentContext`.
+- $\sigma$: The $65$-byte signature provided in the `X-402-Signature` header.
+- The request is only granted if $\sigma_{addr} \in \text{Authorized Payers}$.
+
+### 2. Memory Safety & Concurrency
+By utilizing **Rust (k256)** for the verification layer, the system remains immune to:
+- **Buffer Overflows:** Prevents malicious signatures from corrupting memory.
+- **Race Conditions:** Rust's strict ownership model ensures thread-safe signature recovery during high-concurrency peaks.
 
 ### Payment Context Structure
 
@@ -166,11 +183,16 @@ The Verifier is a specialized computation unit designed for one task: Elliptic C
 
 ### Getting Started (Local)
 
-**Prerequisites**
-- Bun
-- Go 1.24+
-- Rust/Cargo (latest stable)
-- Node.js 20+ (for Next.js 16.x tooling)
+### 📋 Environment Matrix
+Before setting up the local environment, ensure your system meets the following polyglot requirements:
+
+| Dependency | Version | Role |
+| :--- | :--- | :--- |
+| **Go** | `1.24.4+` | Edge Gateway & Token Bucket Rate Limiting |
+| **Rust** | `Stable` | Cryptographic Verifier (ethers-rs / EIP-712 Recovery) |
+| **Node.js** | `20+` | Next.js 16.1.1 Frontend & UI Tooling |
+| **Bun** | `Latest` | Unified Task Runner & High-Speed E2E Testing |
+| **Redis** | `7.0+` | Receipt Caching, TTL Management, & Persistence |
 
 **Clone & Install**
 ```bash
@@ -294,6 +316,31 @@ VERIFIER_TIMEOUT_SECONDS=2
 HEALTH_CHECK_TIMEOUT_SECONDS=2
 ```
 
+### Caching Configuration
+
+MicroAI Paygate includes an intelligent Redis-backed caching layer to reduce OpenRouter API costs and improve response times for frequently requested content.
+
+**Features:**
+- **Cache-Aside Pattern**: Checks Redis before calling AI provider. If found, data is returned instantly, but **payment verification is still enforced**.
+- **Content-Addressable**: Uses SHA256 of request text as the cache key.
+- **Secure by Design**: Cached responses are ONLY served to requests with valid payment signatures. The latency savings come from avoiding the AI provider call, not from skipping verification.
+- **TTL-Based**: Configurable expiration to ensure content freshness.
+
+**Configuration:**
+Add to `.env`:
+```bash
+# Redis Configuration
+# Use 'redis:6379' for docker-compose, 'localhost:6379' for local run
+REDIS_URL=redis:6379
+REDIS_PASSWORD=
+REDIS_DB=0
+
+# Cache Settings
+CACHE_ENABLED=true
+# Time-to-live for cached items in seconds (default: 3600 = 1 hour)
+CACHE_TTL_SECONDS=3600
+```
+
 ### Docker Deployment (Production)
 
 For production environments, we provide a containerized setup using Docker Compose. This orchestrates all three services in an isolated network.
@@ -377,14 +424,6 @@ cargo test
 - HTTP 402 Payment Required (MDN): https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/402
 - RFC 7231 Section 6.5.2 (Payment Required): https://www.rfc-editor.org/rfc/rfc7231#section-6.5.2
 - EIP-712 Typed Structured Data: https://eips.ethereum.org/EIPS/eip-712
-
-## Contributing
-
-We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and check the [GitHub Issues](https://github.com/AnkanMisra/MicroAI-Paygate/issues) for open tasks.
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
 
 ## Receipt Verification
 
@@ -520,31 +559,6 @@ SERVER_WALLET_PRIVATE_KEY=your_private_key_hex
 RECEIPT_TTL=86400
 ```
 
-### Caching Configuration
-
-MicroAI Paygate includes an intelligent Redis-backed caching layer to reduce OpenRouter API costs and improve response times for frequently requested content.
-
-**Features:**
-- **Cache-Aside Pattern**: Checks Redis before calling AI provider. If found, data is returned instantly, but **payment verification is still enforced**.
-- **Content-Addressable**: Uses SHA256 of request text as the cache key.
-- **Secure by Design**: Cached responses are ONLY served to requests with valid payment signatures. The latency savings come from avoiding the AI provider call, not from skipping verification.
-- **TTL-Based**: Configurable expiration to ensure content freshness.
-
-**Configuration:**
-Add to `.env`:
-```bash
-# Redis Configuration
-# Use 'redis:6379' for docker-compose, 'localhost:6379' for local run
-REDIS_URL=redis:6379
-REDIS_PASSWORD=
-REDIS_DB=0
-
-# Cache Settings
-CACHE_ENABLED=true
-# Time-to-live for cached items in seconds (default: 3600 = 1 hour)
-CACHE_TTL_SECONDS=3600
-```
-
 ## API Reference
 
 ### Endpoints
@@ -589,3 +603,12 @@ Internal endpoint used by the Gateway to verify signatures with the Rust service
   "signature": "0x..."
 }
 ```
+
+## Contributing
+
+We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and check the [GitHub Issues](https://github.com/AnkanMisra/MicroAI-Paygate/issues) for open tasks.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
