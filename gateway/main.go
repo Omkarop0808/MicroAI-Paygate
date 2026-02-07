@@ -16,6 +16,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime"
 	"strconv"
@@ -54,19 +55,106 @@ type SummarizeRequest struct {
 	Text string `json:"text"`
 }
 
+// validateConfig validates all required environment variables at startup.
+// It checks for OPENROUTER_API_KEY, SERVER_WALLET_PRIVATE_KEY, and conditionally REDIS_URL.
+// Returns an error listing all missing variables if any are not set.
 func validateConfig() error {
 	required := []string{
 		"OPENROUTER_API_KEY",
+		"SERVER_WALLET_PRIVATE_KEY", // Critical for signing receipts
 	}
+
+	// Add REDIS_URL to required if caching is enabled
+	if getCacheEnabled() {
+		required = append(required, "REDIS_URL")
+	}
+
+	// Iterate and collect all missing vars, returning a comprehensive error
 	var missing []string
 	for _, key := range required {
 		if os.Getenv(key) == "" {
 			missing = append(missing, key)
 		}
 	}
+
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required environment variables: %v", missing)
 	}
+
+	// Validate SERVER_WALLET_PRIVATE_KEY format early (before server starts accepting traffic)
+	if err := validateServerPrivateKey(); err != nil {
+		return fmt.Errorf("SERVER_WALLET_PRIVATE_KEY validation failed: %w", err)
+	}
+
+	// Validate REDIS_URL format if caching is enabled
+	if getCacheEnabled() {
+		if err := validateRedisURL(); err != nil {
+			return fmt.Errorf("REDIS_URL validation failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// validateServerPrivateKey validates the private key format without loading it into memory.
+// It checks that the key is valid hex, has proper length (31-32 bytes), and handles 0x prefix.
+// This prevents runtime failures when the server tries to sign receipts.
+func validateServerPrivateKey() error {
+	keyHex := os.Getenv("SERVER_WALLET_PRIVATE_KEY")
+	if keyHex == "" {
+		return fmt.Errorf("SERVER_WALLET_PRIVATE_KEY not set")
+	}
+
+	// Remove 0x prefix if present
+	keyHex = strings.TrimPrefix(keyHex, "0x")
+
+	keyBytes, err := hex.DecodeString(keyHex)
+	if err != nil {
+		return fmt.Errorf("invalid private key format: %w", err)
+	}
+
+	// Validate key length (same validation as getServerPrivateKey)
+	if len(keyBytes) < 31 {
+		return fmt.Errorf("private key too short: got %d bytes, expected at least 31 bytes", len(keyBytes))
+	}
+
+	if len(keyBytes) > 32 {
+		return fmt.Errorf("private key must be at most 32 bytes, got %d bytes", len(keyBytes))
+	}
+
+	return nil
+}
+
+// validateRedisURL validates the Redis URL format without connecting.
+// It supports both redis:// URLs and host:port format.
+// Only called when CACHE_ENABLED=true to ensure Redis is properly configured.
+func validateRedisURL() error {
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		return fmt.Errorf("REDIS_URL not set but CACHE_ENABLED=true")
+	}
+
+	// Handle redis:// or rediss:// schemes
+	if strings.HasPrefix(redisURL, "redis://") || strings.HasPrefix(redisURL, "rediss://") {
+		// Parse the URL to extract the host:port
+		u, err := url.Parse(redisURL)
+		if err != nil || u.Host == "" {
+			return fmt.Errorf("invalid REDIS_URL format")
+		}
+		// Verify host:port format
+		parts := strings.Split(u.Host, ":")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return fmt.Errorf("invalid REDIS_URL format")
+		}
+		return nil
+	}
+
+	// Handle plain host:port format
+	parts := strings.Split(redisURL, ":")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return fmt.Errorf("REDIS_URL must be in format 'host:port'")
+	}
+
 	return nil
 }
 func main() {
