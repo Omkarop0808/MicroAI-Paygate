@@ -2,6 +2,9 @@ package main
 
 import (
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -107,5 +110,91 @@ func TestGzipExcludedPaths(t *testing.T) {
 	contentEncoding := w.Header().Get("Content-Encoding")
 	if contentEncoding == "gzip" {
 		t.Error("metrics endpoint should not be compressed")
+	}
+}
+
+func TestGzipTransparencyWithHashing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	r.Use(gzipMiddleware.Gzip(gzipMiddleware.DefaultCompression))
+
+	// Mock handler that simulates receipt generation behavior:
+	// 1. Generate response body
+	// 2. Hash the uncompressed body (like generateAndSendReceipt does)
+	// 3. Send hash in header (simulating X-402-Receipt behavior)
+	// 4. Return JSON response (which gets compressed by middleware)
+	r.GET("/api/test", func(c *gin.Context) {
+		responseBody := map[string]string{
+			"result": "This is a test response to verify that GZIP compression is transparent to cryptographic signing and receipt verification.",
+		}
+
+		// Hash the uncompressed body (server-side, before compression)
+		// This simulates what generateAndSendReceipt does
+		uncompressedBytes, _ := json.Marshal(responseBody)
+		serverHash := sha256.Sum256(uncompressedBytes)
+		serverHashHex := hex.EncodeToString(serverHash[:])
+
+		// Send hash in header (simulating receipt behavior)
+		c.Header("X-Response-Hash", serverHashHex)
+
+		// Send JSON response (middleware will compress this)
+		c.JSON(200, responseBody)
+	})
+
+	// Client request with gzip support
+	req := httptest.NewRequest("GET", "/api/test", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	// Verify response is compressed
+	contentEncoding := w.Header().Get("Content-Encoding")
+	if contentEncoding != "gzip" {
+		t.Fatalf("expected Content-Encoding: gzip, got: %s", contentEncoding)
+	}
+
+	// Get server hash from header
+	serverHash := w.Header().Get("X-Response-Hash")
+	if serverHash == "" {
+		t.Fatal("server hash header is missing")
+	}
+
+	// Client decompresses the response
+	reader, err := gzip.NewReader(w.Body)
+	if err != nil {
+		t.Fatalf("failed to create gzip reader: %v", err)
+	}
+	defer reader.Close()
+
+	decompressedBody, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("failed to decompress response: %v", err)
+	}
+
+	// Client computes hash of decompressed body
+	clientHash := sha256.Sum256(decompressedBody)
+	clientHashHex := hex.EncodeToString(clientHash[:])
+
+	// Verify that client hash matches server hash
+	// This proves compression is transparent to receipt verification
+	if clientHashHex != serverHash {
+		t.Errorf("hash mismatch: client computed %s but server sent %s", clientHashHex, serverHash)
+		t.Errorf("This means GZIP compression breaks receipt verification!")
+	}
+
+	// Verify the decompressed body is valid JSON
+	var result map[string]string
+	if err := json.Unmarshal(decompressedBody, &result); err != nil {
+		t.Fatalf("failed to parse decompressed JSON: %v", err)
+	}
+
+	if result["result"] == "" {
+		t.Error("decompressed response is missing expected data")
 	}
 }
