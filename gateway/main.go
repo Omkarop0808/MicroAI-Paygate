@@ -211,7 +211,7 @@ func main() {
 	// Configure GZIP compression for API responses
 	// - Uses DefaultCompression for balance between speed and size
 	// - Excludes /metrics endpoint (if added in future)
-	// - Compresses responses > 1KB automatically
+	// - Compression is transparent to receipt verification (hashes uncompressed body)
 	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/metrics"})))
 
 	// Initialize Redis early to fail-fast if Redis required but unavailable

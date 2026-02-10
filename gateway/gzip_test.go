@@ -37,9 +37,12 @@ func TestGzipCompression(t *testing.T) {
 			r.Use(gzipMiddleware.Gzip(gzipMiddleware.DefaultCompression))
 
 			r.GET("/test", func(c *gin.Context) {
+				// Use larger response body to ensure compression is worthwhile
+				// and avoid middleware skipping compression for tiny responses
 				c.JSON(200, map[string]string{
-					"message": "This is a test response for gzip compression",
-					"data":    "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+					"message": "This is a test response for gzip compression middleware validation",
+					"data":    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.",
+					"extra":   "Additional padding to ensure response is large enough for compression to be beneficial and avoid any middleware size thresholds.",
 				})
 			})
 
