@@ -1,0 +1,108 @@
+package main
+
+import (
+	"compress/gzip"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	gzipMiddleware "github.com/gin-contrib/gzip"
+	"github.com/gin-gonic/gin"
+)
+
+func TestGzipCompression(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name             string
+		acceptEncoding   string
+		expectCompressed bool
+	}{
+		{
+			name:             "with gzip accept-encoding",
+			acceptEncoding:   "gzip",
+			expectCompressed: true,
+		},
+		{
+			name:             "without accept-encoding",
+			acceptEncoding:   "",
+			expectCompressed: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := gin.New()
+			r.Use(gzipMiddleware.Gzip(gzipMiddleware.DefaultCompression))
+
+			r.GET("/test", func(c *gin.Context) {
+				c.JSON(200, map[string]string{
+					"message": "This is a test response for gzip compression",
+					"data":    "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+				})
+			})
+
+			req := httptest.NewRequest("GET", "/test", nil)
+			if tt.acceptEncoding != "" {
+				req.Header.Set("Accept-Encoding", tt.acceptEncoding)
+			}
+
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("expected status 200, got %d", w.Code)
+			}
+
+			contentEncoding := w.Header().Get("Content-Encoding")
+			if tt.expectCompressed {
+				if contentEncoding != "gzip" {
+					t.Errorf("expected Content-Encoding: gzip, got: %s", contentEncoding)
+				}
+
+				reader, err := gzip.NewReader(w.Body)
+				if err != nil {
+					t.Fatalf("failed to create gzip reader: %v", err)
+				}
+				defer reader.Close()
+
+				decompressed, err := io.ReadAll(reader)
+				if err != nil {
+					t.Fatalf("failed to decompress response: %v", err)
+				}
+
+				if len(decompressed) == 0 {
+					t.Error("decompressed response is empty")
+				}
+			} else {
+				if contentEncoding == "gzip" {
+					t.Error("expected no compression, but got Content-Encoding: gzip")
+				}
+			}
+		})
+	}
+}
+
+func TestGzipExcludedPaths(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	r.Use(gzipMiddleware.Gzip(gzipMiddleware.DefaultCompression,
+		gzipMiddleware.WithExcludedPaths([]string{"/metrics"})))
+
+	r.GET("/metrics", func(c *gin.Context) {
+		c.String(200, "metrics data")
+	})
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	contentEncoding := w.Header().Get("Content-Encoding")
+	if contentEncoding == "gzip" {
+		t.Error("metrics endpoint should not be compressed")
+	}
+}

@@ -26,6 +26,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-contrib/cors"
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -206,6 +207,13 @@ func main() {
 	// VIBE FIX: Register the Correlation ID Middleware immediately
 	// This ensures every single request gets an ID before anything else happens.
 	r.Use(CorrelationIDMiddleware())
+
+	// Configure GZIP compression for API responses
+	// - Uses DefaultCompression for balance between speed and size
+	// - Excludes /metrics endpoint (if added in future)
+	// - Compresses responses > 1KB automatically
+	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/metrics"})))
+
 	// Initialize Redis early to fail-fast if Redis required but unavailable
 	initRedis()
 
