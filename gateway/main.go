@@ -1050,7 +1050,8 @@ func handleHealthz(c *gin.Context) {
 // It performs a comprehensive health check by verifying:
 // 1. Connectivity to the Verifier service
 // 2. Availability of the OpenRouter API
-// 3. Self-health metrics (goroutine count, memory usage)
+// 3. Redis connectivity (if caching is enabled)
+// 4. Self-health metrics (goroutine count, memory usage)
 // Returns 200 OK if all dependencies are healthy, otherwise 503 Service Unavailable.
 func handleReadyz(c *gin.Context) {
 	checks := make(map[string]interface{})
@@ -1063,7 +1064,23 @@ func handleReadyz(c *gin.Context) {
 	openRouterStatus := checkOpenRouterHealth()
 	checks["openrouter"] = openRouterStatus
 
-	//3. Self-health metrics
+	//3. Check Redis connectivity (if caching is enabled)
+	redisStatus := "disabled"
+	if getCacheEnabled() {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		if redisClient == nil {
+			redisStatus = "unreachable"
+		} else if err := redisClient.Ping(ctx).Err(); err != nil {
+			redisStatus = "unreachable"
+		} else {
+			redisStatus = "ok"
+		}
+	}
+	checks["redis"] = redisStatus
+
+	//4. Self-health metrics
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 	checks["gateway"] = gin.H{
@@ -1072,8 +1089,12 @@ func handleReadyz(c *gin.Context) {
 		"memory_sys_mb":   memStats.Sys / 1024 / 1024,
 		"status":          "ok",
 	}
-	//Overall status logic
+
+	//Overall status logic - include Redis if caching is enabled
 	ready := verifierStatus == "ok" && openRouterStatus == "ok"
+	if getCacheEnabled() {
+		ready = ready && redisStatus == "ok"
+	}
 
 	statusCode := http.StatusOK
 	if !ready {

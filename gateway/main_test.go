@@ -454,3 +454,80 @@ func TestHandleReadyz_UnHealthy(t *testing.T) {
 	checks := response["checks"].(map[string]interface{})
 	require.Equal(t, "unreachable", checks["verifier"])
 }
+
+func TestHandleReadyz_RedisDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Save originals
+	origVerifier := checkVerifierHealth
+	origOpenRouter := checkOpenRouterHealth
+	origCacheEnabled := os.Getenv("CACHE_ENABLED")
+	defer func() {
+		checkVerifierHealth = origVerifier
+		checkOpenRouterHealth = origOpenRouter
+		os.Setenv("CACHE_ENABLED", origCacheEnabled)
+	}()
+
+	// Stub healthy services
+	checkVerifierHealth = func() string { return "ok" }
+	checkOpenRouterHealth = func() string { return "ok" }
+	os.Setenv("CACHE_ENABLED", "false")
+
+	r := gin.Default()
+	r.GET("/readyz", handleReadyz)
+
+	req, _ := http.NewRequest(http.MethodGet, "/readyz", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	require.Equal(t, true, response["ready"])
+	checks := response["checks"].(map[string]interface{})
+	require.Equal(t, "disabled", checks["redis"])
+}
+
+func TestHandleReadyz_RedisUnreachable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Save originals
+	origVerifier := checkVerifierHealth
+	origOpenRouter := checkOpenRouterHealth
+	origCacheEnabled := os.Getenv("CACHE_ENABLED")
+	origRedisClient := redisClient
+	defer func() {
+		checkVerifierHealth = origVerifier
+		checkOpenRouterHealth = origOpenRouter
+		os.Setenv("CACHE_ENABLED", origCacheEnabled)
+		redisClient = origRedisClient
+	}()
+
+	// Stub healthy services but Redis is nil (unreachable)
+	checkVerifierHealth = func() string { return "ok" }
+	checkOpenRouterHealth = func() string { return "ok" }
+	os.Setenv("CACHE_ENABLED", "true")
+	redisClient = nil // Simulate Redis not initialized
+
+	r := gin.Default()
+	r.GET("/readyz", handleReadyz)
+
+	req, _ := http.NewRequest(http.MethodGet, "/readyz", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	require.Equal(t, false, response["ready"])
+	checks := response["checks"].(map[string]interface{})
+	require.Equal(t, "unreachable", checks["redis"])
+}
