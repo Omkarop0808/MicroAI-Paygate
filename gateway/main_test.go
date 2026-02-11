@@ -461,11 +461,15 @@ func TestHandleReadyz_RedisDisabled(t *testing.T) {
 	// Save originals
 	origVerifier := checkVerifierHealth
 	origOpenRouter := checkOpenRouterHealth
-	origCacheEnabled := os.Getenv("CACHE_ENABLED")
+	origCacheEnabled, cacheWasSet := os.LookupEnv("CACHE_ENABLED")
 	defer func() {
 		checkVerifierHealth = origVerifier
 		checkOpenRouterHealth = origOpenRouter
-		os.Setenv("CACHE_ENABLED", origCacheEnabled)
+		if cacheWasSet {
+			os.Setenv("CACHE_ENABLED", origCacheEnabled)
+		} else {
+			os.Unsetenv("CACHE_ENABLED")
+		}
 	}()
 
 	// Stub healthy services
@@ -498,12 +502,16 @@ func TestHandleReadyz_RedisUnreachable(t *testing.T) {
 	// Save originals
 	origVerifier := checkVerifierHealth
 	origOpenRouter := checkOpenRouterHealth
-	origCacheEnabled := os.Getenv("CACHE_ENABLED")
+	origCacheEnabled, cacheWasSet := os.LookupEnv("CACHE_ENABLED")
 	origRedisClient := redisClient
 	defer func() {
 		checkVerifierHealth = origVerifier
 		checkOpenRouterHealth = origOpenRouter
-		os.Setenv("CACHE_ENABLED", origCacheEnabled)
+		if cacheWasSet {
+			os.Setenv("CACHE_ENABLED", origCacheEnabled)
+		} else {
+			os.Unsetenv("CACHE_ENABLED")
+		}
 		redisClient = origRedisClient
 	}()
 
